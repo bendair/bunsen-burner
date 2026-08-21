@@ -1,0 +1,3514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Bunsen Burner Simulator — GPU Volumetric</title>
+<style>
+  :root{
+    --bg:#07080b;
+    --panel:rgba(16,18,24,0.82);
+    --panel-solid:#12141a;
+    --line:rgba(255,255,255,0.10);
+    --line-2:rgba(255,255,255,0.055);
+    --txt:#e7eaf0;
+    --dim:#8d94a3;
+    --dim-2:#5f6674;
+    --accent:#5ec8ff;
+    --hot:#ff8a3c;
+    --warn:#ffcf4a;
+    --bad:#ff5f5f;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
+  canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+  canvas#gl.dragging{cursor:grabbing}
+  canvas#gl.hoverPart{cursor:ew-resize}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;bottom:0;left:0;padding:16px 18px 14px;pointer-events:none;z-index:5}
+  #hud h1{margin:0;font-size:13px;letter-spacing:.16em;text-transform:uppercase;font-weight:600;color:var(--txt)}
+  #hud .sub{margin:3px 0 12px;font-size:11px;color:var(--dim-2);letter-spacing:.05em;font-family:var(--mono)}
+  .readout{background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:10px;padding:12px 14px;width:282px;max-width:calc(100vw - 40px);pointer-events:auto}
+  .rname{font-size:12px;font-weight:600;letter-spacing:.02em;margin-bottom:9px;display:flex;align-items:center;gap:8px;line-height:1.3}
+  .swatch{width:11px;height:11px;border-radius:3px;box-shadow:0 0 10px currentColor;background:currentColor;flex:none}
+  .row{display:flex;justify-content:space-between;align-items:baseline;gap:14px;font-family:var(--mono);font-size:11px;padding:3px 0;color:var(--dim)}
+  .row>span{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row b{color:var(--txt);font-weight:600;flex:0 0 auto}
+  .bar{height:3px;border-radius:2px;background:rgba(255,255,255,.09);overflow:hidden;margin:7px 0 2px}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,#3a6cff,#5ec8ff,#ffd25e,#ff6a2c);border-radius:2px;transition:width .18s}
+  #alert{margin-top:9px;font-family:var(--mono);font-size:10.5px;line-height:1.45;border-radius:8px;padding:8px 10px;display:none;overflow-wrap:anywhere}
+  #alert.on{display:block}
+  #alert.warn{background:rgba(255,207,74,.10);border:1px solid rgba(255,207,74,.32);color:#ffd97a}
+  #alert.ok{background:rgba(94,200,255,.10);border:1px solid rgba(94,200,255,.32);color:#a8dcff}
+  #alert.bad{background:rgba(255,95,95,.10);border:1px solid rgba(255,95,95,.34);color:#ff8f8f}
+
+  /* ---------- Control panel ---------- */
+  #panel{position:fixed;top:0;right:0;height:100%;width:322px;background:var(--panel);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+    border-left:1px solid var(--line);z-index:6;display:flex;flex-direction:column;transition:transform .32s cubic-bezier(.4,0,.2,1)}
+  #panel.hidden{transform:translateX(100%)}
+  #panelScroll{overflow-y:auto;overflow-x:hidden;padding:18px 18px 30px;flex:1}
+  #panelScroll::-webkit-scrollbar{width:8px}
+  #panelScroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:4px}
+  .sec{margin-bottom:22px}
+  .sec>h2{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim-2);margin:0 0 11px;font-weight:600}
+  .ctl{margin-bottom:15px}
+  .ctl label{display:flex;justify-content:space-between;font-size:11.5px;color:var(--dim);margin-bottom:7px;font-weight:500}
+  .ctl label b{color:var(--txt);font-family:var(--mono);font-weight:600}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:22px;background:transparent;cursor:pointer;display:block}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:3px;background:rgba(255,255,255,.13)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;margin-top:-5.5px;border-radius:50%;background:#fff;border:none;box-shadow:0 0 0 1px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.6)}
+  input[type=range]::-moz-range-track{height:4px;border-radius:3px;background:rgba(255,255,255,.13)}
+  input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:#fff;border:none}
+  input[type=range]:disabled{opacity:.35;cursor:not-allowed}
+  .btnrow{display:flex;gap:7px;flex-wrap:wrap}
+  button{font-family:var(--sans);font-size:11.5px;font-weight:500;color:var(--txt);background:rgba(255,255,255,.055);border:1px solid var(--line);
+    border-radius:7px;padding:8px 11px;cursor:pointer;transition:background .15s,border-color .15s;flex:1;white-space:nowrap}
+  button:hover{background:rgba(255,255,255,.11)}
+  button:active{transform:translateY(1px)}
+  button.on{background:rgba(94,200,255,.16);border-color:rgba(94,200,255,.45);color:#bfe8ff}
+  button.ignite{background:linear-gradient(180deg,rgba(255,138,60,.24),rgba(255,90,30,.16));border-color:rgba(255,138,60,.45);color:#ffc79a}
+  button.ignite:hover{background:linear-gradient(180deg,rgba(255,138,60,.36),rgba(255,90,30,.24))}
+  .presets{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+  .preset{padding:9px 4px 8px;text-align:center;line-height:1.3;position:relative}
+  .preset .n{font-family:var(--mono);font-size:14px;font-weight:700;display:block}
+  .preset .t{font-size:8.5px;color:var(--dim-2);letter-spacing:.02em;display:block;margin-top:2px}
+  .preset.on .t{color:#9fd8f5}
+  .note{font-size:10.5px;line-height:1.55;color:var(--dim-2);margin:0}
+  .chips{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .chips button{font-size:10.5px;padding:7px 8px;text-align:left;line-height:1.25;flex:none}
+  .chips button i{display:block;font-style:normal;color:var(--dim-2);font-family:var(--mono);font-size:9.5px;margin-top:2px}
+  .chips button.on i{color:#9fd8f5}
+  .obs{font-size:10.5px;line-height:1.55;color:#c6cddb;margin-top:8px}
+  .eqn{font-family:var(--mono);font-size:10.5px;color:#8fd7ff;margin-top:7px;padding-top:7px;border-top:1px solid var(--line-2);overflow-wrap:anywhere}
+  .spec{height:16px;border-radius:3px;position:relative;overflow:hidden;
+    background:linear-gradient(90deg,#1a0033 0%,#3300b3 8%,#0040ff 20%,#00b3ff 30%,#00e676 42%,#b3ff00 54%,#ffea00 62%,#ff8c00 72%,#ff1500 85%,#4d0000 100%);
+    filter:saturate(.72) brightness(.45)}
+  .spec i{position:absolute;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 6px #fff;border-radius:1px}
+  .specax{display:flex;justify-content:space-between;font-family:var(--mono);font-size:8.5px;color:var(--dim-2);margin-top:3px}
+  .tgraph{position:relative;height:46px;margin:9px 0 2px;border-radius:5px;background:rgba(255,255,255,.045);border:1px solid var(--line-2);overflow:hidden}
+  .tgraph svg{width:100%;height:100%;display:block}
+  .tgraph polyline{stroke:#ff9a4d;stroke-width:1.6;fill:none;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+  .tgraph line{stroke:rgba(255,255,255,.22);stroke-dasharray:3 3;stroke-width:1;vector-effect:non-scaling-stroke}
+  .tgl{position:absolute;top:3px;right:6px;font-family:var(--mono);font-size:8.5px;color:var(--dim-2)}
+  .badge{display:inline-block;font-family:var(--mono);font-size:9px;padding:1px 5px;border-radius:4px;margin-left:6px;vertical-align:1px}
+  .badge.exo{background:rgba(255,120,60,.16);color:#ffb188;border:1px solid rgba(255,120,60,.35)}
+  .badge.endo{background:rgba(90,170,255,.14);color:#9ecbff;border:1px solid rgba(90,170,255,.32)}
+  .toggles{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  #panelTab{position:fixed;top:14px;right:14px;z-index:7;width:38px;height:38px;padding:0;border-radius:9px;flex:none;
+    background:var(--panel);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center}
+  #panelTab svg{width:17px;height:17px;stroke:var(--txt);fill:none;stroke-width:1.6}
+  #panel:not(.hidden) ~ #panelTab{right:336px}
+
+  /* ---------- Labels ---------- */
+  #labels{position:fixed;inset:0;pointer-events:none;z-index:4;display:none}
+  #labels.on{display:block}
+  .lbl{position:absolute;transform:translate(0,-50%);font-family:var(--mono);font-size:10px;color:#cfd6e4;white-space:nowrap;
+    background:rgba(10,12,16,.78);border:1px solid var(--line);border-radius:5px;padding:3px 7px;letter-spacing:.02em}
+  .lbl i{color:var(--dim-2);font-style:normal}
+  #labels svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+  #labels svg line{stroke:rgba(255,255,255,.24);stroke-width:1}
+  #labels svg circle{fill:rgba(255,255,255,.55)}
+
+  #fps{margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--dim-2);pointer-events:none}
+  #hint{position:fixed;top:16px;left:20px;font-family:var(--mono);font-size:10px;color:var(--dim-2);
+    z-index:5;pointer-events:none;transition:opacity .6s}
+  body.dropping::after{content:'Drop a .json setup file to load it';position:fixed;inset:10px;z-index:30;
+    border:2px dashed rgba(94,200,255,.65);border-radius:14px;background:rgba(94,200,255,.07);
+    display:grid;place-items:center;font-family:var(--mono);font-size:13px;color:#bfe8ff;pointer-events:none}
+  #err{position:fixed;inset:0;display:none;place-items:center;padding:40px;background:#07080b;z-index:20;text-align:center}
+  #err div{max-width:520px;font-size:13px;line-height:1.6;color:var(--dim)}
+  @media (max-width:820px){
+    #panel{width:290px}
+    #panel:not(.hidden) ~ #panelTab{right:304px}
+    #hud{padding:12px}
+    .readout{min-width:0;width:calc(100vw - 84px);max-width:300px}
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="labels"><svg id="lsvg"></svg></div>
+
+<div id="hud">
+  <h1>Bunsen Burner</h1>
+  <div class="sub">GPU VOLUMETRIC COMBUSTION SIM</div>
+  <div class="readout">
+    <div class="rname"><span class="swatch" id="swatch"></span><span id="flameName">Gas off</span></div>
+    <div class="bar"><i id="aerBar" style="width:0%"></i></div>
+    <div class="row"><span>Primary aeration</span><b id="aerVal">0 %</b></div>
+    <div class="row"><span>Hottest pt. <i>&middot; cone tip</i></span><b id="tHot">—</b></div>
+    <div class="row"><span>Inner cone <i>&middot; coolest</i></span><b id="tCool">—</b></div>
+    <div class="row"><span>Combustion</span><b id="comb">—</b></div>
+    <div class="row"><span>Soot deposition</span><b id="soot">—</b></div>
+    <div class="row"><span>Flame height</span><b id="fh">—</b></div>
+    <div id="alert"></div>
+  </div>
+  <div class="readout" id="chem" style="display:none;margin-top:10px">
+    <div class="rname"><span class="swatch" id="chemSwatch"></span><span id="chemName">—</span></div>
+    <div class="row"><span>Formula</span><b id="chemF">—</b></div>
+    <div class="row"><span>Sample temperature</span><b id="chemT">—</b></div>
+    <div id="specWrap" style="display:none;margin:8px 0 2px">
+      <div class="spec" id="spec"></div>
+      <div class="specax"><span>400</span><span>500</span><span>600</span><span>700 nm</span></div>
+    </div>
+    <div class="row" id="glowRow" style="display:none"><span>Thermal colour</span><b id="chemGlow">—</b></div>
+    <div class="row" id="phaseRow" style="display:none"><span>Phase</span><b id="chemPhase">—</b></div>
+    <div class="row" id="concRow" style="display:none"><span>Liquor / crust</span><b id="chemConc">—</b></div>
+    <div class="row" id="mpRow" style="display:none"><span id="mpLbl">Melting point</span><b id="chemMP">—</b></div>
+    <div class="row" id="dhRow" style="display:none"><span>&Delta;H reaction</span><b id="chemDH">—</b></div>
+    <div class="tgraph" id="tgraph">
+      <svg viewBox="0 0 240 46" preserveAspectRatio="none">
+        <line id="tonsetL" x1="0" y1="23" x2="240" y2="23"></line>
+        <polyline id="tline" points=""></polyline>
+      </svg>
+      <span class="tgl" id="tglab">—</span>
+    </div>
+    <div class="obs" id="chemObs">—</div>
+    <div class="eqn" id="chemEq"></div>
+  </div>
+  <div id="fps">—</div>
+</div>
+
+<button id="panelTab" title="Toggle controls">
+  <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+</button>
+
+<div id="panel">
+  <div id="panelScroll">
+
+    <div class="sec">
+      <h2>Ignition</h2>
+      <div class="btnrow">
+        <button id="btnIgnite" class="ignite">Spark lighter</button>
+        <button id="btnOut">Extinguish</button>
+      </div>
+      <p class="note" style="margin-top:9px">Gas must be flowing before the burner will light.</p>
+    </div>
+
+    <div class="sec">
+      <h2>Fuel gas</h2>
+      <div class="presets" id="fuelRow"></div>
+      <p class="note" id="fuelNote" style="margin-top:10px"></p>
+    </div>
+
+    <div class="sec">
+      <h2>Air collar &mdash; throat slots</h2>
+      <div class="ctl">
+        <label>Slot opening <b id="airTxt">0 %</b></label>
+        <input id="air" type="range" min="0" max="100" value="0">
+      </div>
+      <div class="presets">
+        <button class="preset" data-air="0"><span class="n">1</span><span class="t">CLOSED</span></button>
+        <button class="preset" data-air="32"><span class="n">2</span><span class="t">SLIGHT</span></button>
+        <button class="preset" data-air="64"><span class="n">3</span><span class="t">HALF</span></button>
+        <button class="preset" data-air="100"><span class="n">4</span><span class="t">FULL</span></button>
+      </div>
+      <p class="note" style="margin-top:10px">Air is entrained through the barrel slots by the Venturi effect. You can also grab the knurled collar in the 3D view and drag sideways.</p>
+    </div>
+
+    <div class="sec">
+      <h2>Needle valve &mdash; gas flow</h2>
+      <div class="ctl">
+        <label>Gas rate <b id="gasTxt">55 %</b></label>
+        <input id="gas" type="range" min="0" max="100" value="55">
+      </div>
+      <p class="note">More gas makes a bigger flame, but at fixed air it starves the flame of oxygen and the temperature falls. Drag the black knob in the 3D view too.</p>
+    </div>
+
+    <div class="sec">
+      <h2>Apparatus</h2>
+      <div class="btnrow">
+        <button id="rig0" class="on">None</button>
+        <button id="rig1">Flame test</button>
+        <button id="rig2">Test tube</button>
+        <button id="rig3">Metal</button>
+        <button id="rig4">Basin</button>
+      </div>
+      <div id="sampleWrap" style="display:none">
+        <div class="chips" id="sampleChips"></div>
+        <div class="btnrow" style="margin-top:9px">
+          <button id="btnIn">Hold in flame</button>
+          <button id="btnClean">Clean / reset</button>
+        </div>
+        <p class="note" id="sampleNote" style="margin-top:9px"></p>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>View</h2>
+      <div class="toggles">
+        <button id="tLabels">Labels</button>
+        <button id="tSound">Sound</button>
+        <button id="tSpin">Auto-orbit</button>
+        <button id="tDark">Lights out</button>
+      </div>
+      <div class="ctl" style="margin-top:14px">
+        <label>Exposure <b id="expTxt">1.00</b></label>
+        <input id="exposure" type="range" min="20" max="260" value="115">
+      </div>
+      <div class="ctl">
+        <label>Render quality <b id="qTxt">High</b></label>
+        <input id="quality" type="range" min="0" max="3" value="2">
+      </div>
+      <div class="btnrow"><button id="btnReset">Reset view</button></div>
+    </div>
+
+    <div class="sec">
+      <h2>Setup files</h2>
+      <div class="btnrow">
+        <button id="btnSave">Save .json</button>
+        <button id="btnLoad">Load .json</button>
+      </div>
+      <div class="btnrow" style="margin-top:7px">
+        <button id="btnCopy">Copy JSON</button>
+        <button id="btnDefaults">Defaults</button>
+      </div>
+      <input id="fileIn" type="file" accept="application/json,.json" style="display:none">
+      <p class="note" style="margin-top:9px">Saves the fuel, collar, valve, apparatus, specimen, view and camera to a small JSON file. Drag a saved file anywhere onto the 3D view to load it. <b>⌘/Ctrl+S</b> saves, <b>⌘/Ctrl+O</b> opens.</p>
+      <div class="specax" style="margin-top:10px;color:var(--dim-2)">SCENARIOS</div>
+      <div class="presets" id="scenarios" style="margin-top:6px"></div>
+    </div>
+
+    <div class="sec">
+      <h2>The four flames</h2>
+      <p class="note">
+        <b style="color:#ffcf7a">1 &middot; Closed.</b> Gas mixes with air only at the point of combustion. Incomplete combustion &rarr; soot particles heated to incandescence give the luminous yellow &ldquo;safety flame&rdquo;. Cool, dirty, easy to see.<br><br>
+        <b style="color:#ffa87a">2 &middot; Slightly open.</b> A small premixed cone appears at the base, white-hot; the plume above is still sooty orange fading to red at the tip.<br><br>
+        <b style="color:#c3a8ff">3 &middot; Half open.</b> Soot largely gone. A pale blue inner cone with a faint violet mantle.<br><br>
+        <b style="color:#7ee0ff">4 &middot; Fully open.</b> Near-stoichiometric premix: a sharp teal inner cone, an almost invisible blue mantle, and a distinct roar. Hottest, cleanest &mdash; and easy to lose against a bright background.
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<div id="hint">drag to orbit &middot; scroll to zoom &middot; drag the collar or the valve knob &middot; keys 1-4</div>
+<div id="err"><div></div></div>
+
+<script>
+"use strict";
+/* =====================================================================
+   Bunsen Burner Simulator
+   WebGL2 · SDF-raymarched burner body + emission/absorption volumetric
+   flame · physically-motivated primary-aeration model · HDR bloom.
+   ===================================================================== */
+
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', {antialias:false, alpha:false, depth:false,
+                                        powerPreference:'high-performance', preserveDrawingBuffer:false});
+function fatal(msg){
+  const e=document.getElementById('err'); e.style.display='grid';
+  e.firstElementChild.innerHTML = msg;
+}
+if(!gl){ fatal("This simulator needs <b>WebGL2</b>, which this browser or device doesn't provide.<br><br>Try a recent Chrome, Edge, Firefox or Safari with hardware acceleration enabled."); }
+
+/* ------------------------------------------------------------------ */
+/* Shader sources                                                      */
+/* ------------------------------------------------------------------ */
+
+const VS = `#version 300 es
+void main(){
+  vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2);
+  gl_Position = vec4(p*2.0-1.0, 0.0, 1.0);
+}`;
+
+/* ---- main scene: SDF burner + volumetric flame ---- */
+const FS_SCENE = `#version 300 es
+precision highp float;
+out vec4 outC;
+
+uniform vec2  uRes;
+uniform float uTime;
+uniform vec3  uCamPos;
+uniform mat3  uCamMat;
+uniform float uFocal;
+uniform float uShift;      // ndc.x offset so the burner clears the control panel
+
+uniform float uAir;        // effective primary aeration 0..1 (drives colour/physics)
+uniform float uCollar;     // collar rotation angle (rad)
+uniform float uGas;        // 0..1
+uniform float uLit;        // 0..1 flame presence (eased)
+uniform float uFH;         // flame height, cm
+uniform float uBaseY;      // flame origin Y (rises for lift-off, drops for strike-back)
+uniform float uGlow;       // barrel red-heat 0..1 (strike-back)
+uniform float uLift;       // lift-off amount
+uniform float uRoom;       // room light level 0..1
+uniform int   uSteps;      // volumetric steps
+uniform float uEnc;        // HDR encode scale
+
+/* ---- apparatus / chemistry ---- */
+uniform int   uRig;        // 0 none · 1 nichrome wire loop · 2 test tube
+uniform vec3  uRigPos;     // loop centre, or tube base
+uniform vec3  uRigAxis;    // wire outward dir, or tube axis (unit)
+uniform vec3  uSaltCol;    // metal line-emission colour
+uniform float uSaltAmt;    // 0..1 how much the flame is coloured
+uniform float uSaltY;      // world height the salt vapour is released at
+uniform vec3  uObsPos;     // apparatus sitting in the flame: deflection centre
+uniform float uObsR;
+uniform float uObsAmt;
+uniform float uCryst;      // crystal crust growth in the basin 0..1
+uniform vec3  uCrystCol;
+uniform vec3  uSolidCol;   // sample / tube-contents colour
+uniform float uSolidFill;  // 0..1
+uniform float uSolidT;     // sample temperature, K — drives incandescence
+uniform vec3  uVapCol;     // vapour inside the tube
+uniform float uVapAmt;
+uniform float uBurn;       // magnesium-ribbon brilliance
+uniform float uGlassT;     // glass temperature at the tube bottom, K
+uniform float uCondense;   // condensation ring near the tube mouth
+uniform vec3  uSmokeCol;   // smoke / fume plume
+uniform float uSmokeAmt;
+uniform vec3  uSmokeSrc;
+uniform float uSparks;     // burning-metal sparks in the plume
+
+/* --- phase change, dripping, boiling, detonation --- */
+uniform float uMelt;       // fraction of the specimen that is molten
+uniform float uSag;        // thermal creep / droop of the specimen
+uniform int   uLiquid;     // 1 = specimen is a liquid held in a dish
+uniform float uLevel;      // liquid level in the dish
+uniform float uBoil;       // boiling vigour 0..1
+uniform vec4  uDrip[6];    // falling droplets: xyz + radius
+uniform float uDripT;      // droplet temperature, K
+uniform vec3  uPudPos;     // solidifying puddle
+uniform float uPudR;
+uniform float uPudT;
+uniform vec3  uBoomPos;    // detonation
+uniform float uBoomR;
+uniform float uBoomW;
+uniform float uBoomI;
+uniform vec3  uBoomCol;
+
+#define PI 3.14159265359
+#define FAR 90.0
+
+/* ---------- hashes & noise ---------- */
+float hash13(vec3 p){
+  p = fract(p*0.3183099 + vec3(0.1,0.2,0.3));
+  p *= 17.0;
+  return fract(p.x*p.y*p.z*(p.x+p.y+p.z));
+}
+float vnoise(vec3 x){
+  vec3 i = floor(x), f = fract(x);
+  f = f*f*(3.0-2.0*f);
+  return mix(mix(mix(hash13(i+vec3(0,0,0)),hash13(i+vec3(1,0,0)),f.x),
+                 mix(hash13(i+vec3(0,1,0)),hash13(i+vec3(1,1,0)),f.x),f.y),
+             mix(mix(hash13(i+vec3(0,0,1)),hash13(i+vec3(1,0,1)),f.x),
+                 mix(hash13(i+vec3(0,1,1)),hash13(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+float fbm3(vec3 p){
+  float a=0.5, s=0.0;
+  for(int i=0;i<4;i++){ s += a*vnoise(p); p = p*2.03 + vec3(11.3,7.7,3.1); a *= 0.5; }
+  return s;
+}
+float fbm2(vec3 p){
+  float a=0.6, s=0.0;
+  for(int i=0;i<2;i++){ s += a*vnoise(p); p = p*2.11 + vec3(5.1,9.3,2.7); a *= 0.45; }
+  return s;
+}
+
+/* ---------- primitives ---------- */
+vec3 rotY(vec3 p, float a){ float c=cos(a), s=sin(a); return vec3(c*p.x - s*p.z, p.y, s*p.x + c*p.z); }
+float sdBox(vec3 p, vec3 b){ vec3 q=abs(p)-b; return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0); }
+float sdCylY(vec3 p, float y0, float y1, float r){
+  float yc=0.5*(y0+y1), h=0.5*(y1-y0);
+  vec2 d = abs(vec2(length(p.xz), p.y-yc)) - vec2(r,h);
+  return min(max(d.x,d.y),0.0) + length(max(d,0.0));
+}
+float sdCylX(vec3 p, float x0, float x1, float r){
+  float xc=0.5*(x0+x1), h=0.5*(x1-x0);
+  vec2 d = abs(vec2(length(p.yz), p.x-xc)) - vec2(r,h);
+  return min(max(d.x,d.y),0.0) + length(max(d,0.0));
+}
+float sdHexY(vec3 p, float yc, float hh, float r){
+  vec3 q = vec3(p.x, p.z, p.y-yc);
+  const vec3 k = vec3(-0.8660254,0.5,0.57735);
+  q = abs(q);
+  q.xy -= 2.0*min(dot(k.xy,q.xy),0.0)*k.xy;
+  vec2 d = vec2(length(q.xy - vec2(clamp(q.x,-k.z*r,k.z*r), r))*sign(q.y-r), q.z-hh);
+  return min(max(d.x,d.y),0.0) + length(max(d,0.0));
+}
+float sdCapsule(vec3 p, vec3 a, vec3 b, float r){
+  vec3 pa=p-a, ba=b-a;
+  float h = clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0);
+  return length(pa - ba*h) - r;
+}
+float sdEllip(vec3 p, vec3 r){
+  float k0 = length(p/r);
+  float k1 = length(p/(r*r));
+  return k0*(k0-1.0)/max(k1, 1e-6);
+}
+float sdTorus(vec3 p, float R, float r){ vec2 q=vec2(length(p.xz)-R, p.y); return length(q)-r; }
+/* torus with an arbitrary axis */
+float sdTorusAx(vec3 p, vec3 c, vec3 n, float R, float r){
+  vec3 q = p - c;
+  float ax = dot(q, n);
+  float rad = length(q - n*ax);
+  return length(vec2(rad - R, ax)) - r;
+}
+/* ray vs finite cylinder about (base, axis) — used for the vapour column */
+bool rayCyl(vec3 ro, vec3 rd, vec3 base, vec3 ax, float r, float h0, float h1, out float t0, out float t1){
+  vec3 oc = ro - base;
+  vec3 d  = rd - ax*dot(rd, ax);
+  vec3 m  = oc - ax*dot(oc, ax);
+  float a = dot(d,d), b = dot(m,d), c = dot(m,m) - r*r;
+  if(a < 1e-7) return false;
+  float disc = b*b - a*c;
+  if(disc < 0.0) return false;
+  float sq = sqrt(disc);
+  t0 = (-b - sq)/a; t1 = (-b + sq)/a;
+  float sa = dot(rd, ax), sb = dot(oc, ax);
+  if(abs(sa) > 1e-6){
+    float ta = (h0 - sb)/sa, tb = (h1 - sb)/sa;
+    t0 = max(t0, min(ta,tb)); t1 = min(t1, max(ta,tb));
+  } else if(sb < h0 || sb > h1) return false;
+  t0 = max(t0, 0.0);
+  return t1 > t0;
+}
+float smin(float a, float b, float k){ float h=clamp(0.5+0.5*(b-a)/k,0.0,1.0); return mix(b,a,h)-k*h*(1.0-h); }
+
+#define SLOT_ANG 0.97   /* put the open aperture toward the default camera */
+/* Two opposed rectangular throat windows */
+float slotCut(vec3 p){
+  vec3 q = p; q.x = abs(q.x);
+  return sdBox(q - vec3(0.78, 3.05, 0.0), vec3(0.62, 0.60, 0.285));
+}
+
+/* ---------- the burner ---------- */
+/* material ids: 1 nickel/chrome · 2 grey hammered base · 3 black knob · 4 floor */
+vec2 mapScene(vec3 p){
+  /* --- base: domed disc --- */
+  vec3 eb = p / vec3(4.15, 1.05, 4.15);
+  float base = (length(eb) - 1.0) * 1.05;
+  base = max(base, -p.y);
+  base = max(base, p.y - 0.98);
+  base = base - 0.05;
+
+  /* --- valve body / hex nut --- */
+  float body = sdHexY(p, 1.72, 0.42, 0.92);
+  body = min(body, sdCylY(p, 0.85, 1.42, 0.62));
+
+  /* --- hose barb --- */
+  float barb = sdCylX(p - vec3(0.0,1.72,0.0), 0.55, 3.85, 0.30);
+  float ridge = 0.05*sin(clamp(p.x,1.30,3.80)*7.5);
+  barb -= ridge;
+  barb = min(barb, sdCylX(p - vec3(0.0,1.72,0.0), 0.55, 1.35, 0.40));
+
+  /* --- needle valve: post, ball joint, lever, black knob --- */
+  float post  = sdCylY(p - vec3(1.30,0.0,0.0), 2.00, 2.55, 0.17);
+  float joint = length(p - vec3(1.30,2.68,0.0)) - 0.27;
+  float lever = sdCapsule(p, vec3(1.42,2.72,0.0), vec3(3.05,3.12,0.0), 0.115);
+  float metal = min(min(post, joint), lever);
+
+  float knobD = length(p - vec3(3.52,3.28,0.0)) - 0.44;
+  {   /* ribbed collar on the knob */
+    vec3 kp = p - vec3(3.52,3.28,0.0);
+    float ang = atan(kp.z, kp.y);
+    knobD -= 0.018*sin(ang*26.0)*smoothstep(0.30,0.05,abs(kp.x+0.12));
+  }
+
+  /* --- spring under the barb --- */
+  float spring = 1e9;
+  for(int i=0;i<4;i++){
+    float fi = float(i);
+    spring = min(spring, sdTorus(p - vec3(2.55, 0.98 + fi*0.16, 0.0), 0.20 + fi*0.012, 0.038));
+  }
+
+  /* --- barrel (fixed) with throat slots --- */
+  float bo = sdCylY(p, 1.95, 12.95, 0.60);
+  float bi = sdCylY(p, 1.60, 13.40, 0.465);
+  float barrel = max(bo, -bi);
+  barrel = max(barrel, -slotCut(rotY(p, -SLOT_ANG)));
+
+  /* --- rotating air collar + knurled grip ring --- */
+  vec3 pc = rotY(p, -uCollar);
+  float co = sdCylY(pc, 1.98, 4.52, 0.735);
+  float ci = sdCylY(pc, 1.70, 4.80, 0.605);
+  float collar = max(co, -ci);
+  collar = max(collar, -slotCut(rotY(pc, -SLOT_ANG)));
+  float ro = sdCylY(pc, 4.16, 4.60, 0.99);
+  float ri = sdCylY(pc, 3.90, 4.90, 0.60);
+  float ring = max(ro, -ri);
+  {
+    float ang = atan(pc.z, pc.x);
+    ring -= 0.018*sin(ang*70.0);
+  }
+  collar = min(collar, ring);
+
+  float chrome = min(min(min(barrel, collar), min(body, barb)), min(metal, spring));
+
+  /* --- floor --- */
+  float floorD = max(p.y + 0.005, length(p.xz) - 38.0);
+
+  vec2 res = vec2(chrome, 16.0);
+  if(base   < res.x) res = vec2(base,  2.0);
+  if(knobD  < res.x) res = vec2(knobD, 3.0);
+  if(floorD < res.x) res = vec2(floorD,4.0);
+
+  /* ---------------- apparatus ---------------- */
+  if(uRig == 1){
+    vec3 c = uRigPos, d = uRigAxis;
+    float loop  = sdTorusAx(p, c, d, 0.30, 0.048);
+    float wire  = sdCapsule(p, c + d*0.02, c + d*4.30, 0.048);
+    float grip  = sdCapsule(p, c + d*4.20, c + d*6.55, 0.30);
+    float nichr = min(loop, wire);
+    if(nichr < res.x) res = vec2(nichr, 6.0);
+    if(grip  < res.x) res = vec2(grip,  7.0);
+    if(uSolidFill > 0.01){
+      float bead = sdTorusAx(p, c, d, 0.30, 0.048 + 0.115*uSolidFill);
+      if(bead < res.x) res = vec2(bead, 9.0);
+    }
+  } else if(uRig == 3){
+    /* tongs holding a specimen, or a crucible of liquid metal */
+    vec3 c = uRigPos, d = uRigAxis;
+    vec3 side = normalize(cross(d, vec3(0.0,1.0,0.0)));
+    float armA = sdCapsule(p, c + d*0.62 + side*0.16, c + d*4.10 + side*0.34, 0.075);
+    float armB = sdCapsule(p, c + d*0.62 - side*0.16, c + d*4.10 - side*0.34, 0.075);
+    float pivot= sdCapsule(p, c + d*4.05 - side*0.42, c + d*4.05 + side*0.42, 0.10);
+    float grip = sdCapsule(p, c + d*4.15, c + d*6.60, 0.26);
+    float tong = min(min(armA, armB), pivot);
+    if(tong < res.x) res = vec2(tong, 1.0);
+    if(grip  < res.x) res = vec2(grip,  7.0);
+
+    if(uLiquid == 1){
+      /* shallow crucible on the jaws */
+      vec3 q = p - vec3(c.x, 0.0, c.z);
+      float dishO = sdCylY(q, c.y-0.26, c.y+0.36, 0.76);
+      float dishI = sdCylY(q, c.y-0.12, c.y+0.70, 0.63);
+      float dish  = max(dishO, -dishI);
+      if(dish < res.x) res = vec2(dish, 11.0);
+
+      float lvlY = c.y - 0.10 + 0.40*uLevel;
+      float wob  = (uBoil > 0.01)
+        ? (fbm3(vec3(q.xz*8.0, uTime*4.0))-0.5)*0.16*uBoil : 0.0;
+      float liq = sdCylY(q, c.y-0.11, lvlY + wob, 0.615);
+      if(uBoil > 0.04){
+        for(int i=0;i<5;i++){
+          float fi = float(i);
+          float ph = fract(uTime*(0.75 + 0.30*fi)*(0.4+1.4*uBoil) + fi*0.41);
+          vec2  bx = vec2(sin(fi*2.37 + fi*ph), cos(fi*1.71 - fi*ph))*0.34;
+          float by = mix(c.y-0.08, lvlY + 0.10, ph);
+          float br = (0.085 + 0.075*fract(fi*0.618)) * uBoil
+                   * smoothstep(0.0,0.22,ph) * (1.0 - smoothstep(0.80,1.0,ph));
+          liq = max(liq, -(length(q - vec3(bx.x, by, bx.y)) - br));
+        }
+      }
+      if(liq < res.x) res = vec2(liq, 10.0);
+    } else {
+      /* a strip gripped at one end: it creeps, droops, then balls up and melts */
+      vec3 j = c + d*0.50;
+      vec3 e = -d;
+      const float L = 2.05;
+      vec3 q = p - j;
+      float sD = clamp(dot(q, e), 0.0, L);
+      float sc = sD / L;
+      q.y += uSag * 1.35 * sc * sc;
+      float slope = uSag * 2.70 * sc / L;
+
+      float rr = 0.055 + 0.46*uSolidFill;
+      float strip = sdCapsule(q, vec3(0.0), e*L, rr*(1.0 - 0.42*uMelt));
+      float ballR = rr*(1.0 + 2.3*uMelt);
+      float bead  = length(q - e*(L*(1.0 - 0.10*uMelt))) - ballR;
+      float spec  = smin(strip, bead, 0.10 + 0.30*uMelt);
+      if(uSolidFill > 0.55) spec -= 0.10*fbm3(p*7.0);
+      spec /= (1.0 + abs(slope));
+      if(spec < res.x) res = vec2(spec, 9.0);
+    }
+  } else if(uRig == 4){
+    /* glazed evaporating basin on a pipe-clay triangle over the flame */
+    vec3 c = uRigPos, d = uRigAxis;
+    vec3 side = normalize(cross(d, vec3(0.0,1.0,0.0)));
+    float armA = sdCapsule(p, c + d*1.30 + side*0.20, c + d*4.20 + side*0.36, 0.078);
+    float armB = sdCapsule(p, c + d*1.30 - side*0.20, c + d*4.20 - side*0.36, 0.078);
+    float grip = sdCapsule(p, c + d*4.25, c + d*6.70, 0.26);
+    if(min(armA,armB) < res.x) res = vec2(min(armA,armB), 1.0);
+    if(grip < res.x) res = vec2(grip, 7.0);
+
+    vec3 bo = p - vec3(c.x, c.y + 0.60, c.z);
+    float outer = sdEllip(bo, vec3(1.44, 0.72, 1.44));
+    float inner = sdEllip(bo - vec3(0.0,0.07,0.0), vec3(1.31, 0.65, 1.31));
+    float bowl  = max(max(outer, -inner), p.y - (c.y + 0.64));
+    float lip   = sdTorusAx(p, vec3(c.x, c.y+0.62, c.z), vec3(0.0,1.0,0.0), 1.375, 0.070);
+    bowl = min(bowl, lip);
+    if(bowl < res.x) res = vec2(bowl, 11.0);
+
+    /* the solution, boiling down */
+    vec3 q = p - vec3(c.x, 0.0, c.z);
+    if(uLevel > 0.004){
+      float lvlY = c.y + 0.06 + 0.44*uLevel;
+      float wob = (uBoil > 0.01)
+        ? (fbm3(vec3(q.xz*6.5, uTime*3.6))-0.5)*0.13*uBoil : 0.0;
+      float liq = max(sdEllip(bo - vec3(0.0,0.07,0.0), vec3(1.30, 0.645, 1.30)),
+                      p.y - (lvlY + wob));
+      if(uBoil > 0.04){
+        for(int i=0;i<5;i++){
+          float fi = float(i);
+          float ph = fract(uTime*(0.8+0.32*fi)*(0.45+1.5*uBoil) + fi*0.47);
+          vec2  bx = vec2(sin(fi*2.31 + fi*ph), cos(fi*1.83 - fi*ph))*0.62;
+          float by = mix(c.y+0.04, lvlY+0.10, ph);
+          float br = (0.09+0.08*fract(fi*0.618))*uBoil
+                   * smoothstep(0.0,0.20,ph)*(1.0-smoothstep(0.80,1.0,ph));
+          liq = max(liq, -(length(q - vec3(bx.x, by, bx.y)) - br));
+        }
+      }
+      if(liq < res.x) res = vec2(liq, 14.0);
+    }
+
+    /* Crystal crust. It grows on the wall the liquid has already left, so it
+       is a shell lining the bowl that creeps down as the level falls. */
+    if(uCryst > 0.01){
+      float wall = sdEllip(bo - vec3(0.0,0.07,0.0), vec3(1.30, 0.645, 1.30));
+      float thick = 0.05 + 0.30*uCryst;
+      float cry = max(wall, -(wall + thick));          /* crust on the inner wall */
+      float lvlC = c.y + 0.06 + 0.44*uLevel;
+      cry = max(cry, (lvlC - 0.04) - p.y);             /* only above the liquid line */
+      cry = max(cry, p.y - (c.y + 0.60));              /* not over the rim */
+      cry -= 0.075*fbm3(p*9.0)*uCryst;                 /* crystalline roughness */
+      cry *= 0.6;
+      if(cry < res.x) res = vec2(cry, 15.0);
+    }
+  } else if(uRig == 2){
+    vec3 B = uRigPos, A = uRigAxis;
+    /* contents */
+    if(uSolidFill > 0.005){
+      float topS = 0.34 + 2.05*uSolidFill;
+      float cont = sdCapsule(p, B + A*0.34, B + A*topS, 0.655);
+      if(uBoil > 0.04){
+        vec3 lp = p - B;
+        float ax = dot(lp, A);
+        cont += (fbm3(vec3(lp*5.0) + vec3(0.0,uTime*3.0,0.0))-0.5)*0.18*uBoil
+                * smoothstep(topS-1.1, topS, ax);
+        for(int i=0;i<4;i++){
+          float fi = float(i);
+          float ph = fract(uTime*(0.9+0.35*fi)*(0.5+1.5*uBoil) + fi*0.53);
+          vec3 bc = B + A*mix(0.45, topS+0.10, ph)
+                  + normalize(cross(A, vec3(0.0,0.0,1.0)))*sin(fi*2.1+ph*3.0)*0.26
+                  + normalize(cross(A, vec3(1.0,0.0,0.0)))*cos(fi*1.6+ph*2.4)*0.26;
+          float br = (0.10+0.09*fract(fi*0.618))*uBoil*smoothstep(0.0,0.2,ph)*(1.0-smoothstep(0.82,1.0,ph));
+          cont = max(cont, -(length(p - bc) - br));
+        }
+      }
+      if(cont < res.x) res = vec2(cont, 9.0);
+    }
+    /* wooden test-tube holder */
+    vec3 grab = B + A*4.60;
+    vec3 outd = normalize(vec3(0.80, -0.14, 0.58));
+    float clip = sdTorusAx(p, grab, A, 0.96, 0.145);
+    float hand = sdCapsule(p, grab + outd*0.80, grab + outd*5.70, 0.255);
+    float wood = min(clip, hand);
+    if(wood < res.x) res = vec2(wood, 7.0);
+  }
+
+  /* falling droplets of molten metal, and the puddle they freeze into */
+  for(int i=0;i<6;i++){
+    float dr = uDrip[i].w;
+    if(dr > 0.001){
+      float dd = length(p - uDrip[i].xyz) - dr;
+      if(dd < res.x) res = vec2(dd, 12.0);
+    }
+  }
+  if(uPudR > 0.004){
+    vec3 pq = p - uPudPos;
+    float pud = (length(vec3(pq.x, pq.y*7.0, pq.z)) - uPudR)*0.7;
+    if(pud < res.x) res = vec2(pud, 13.0);
+  }
+  return res;
+}
+
+/* glass shell of the test tube, marched separately and composited */
+float mapGlass(vec3 p){
+  if(uRig != 2) return 1e9;
+  vec3 B = uRigPos, A = uRigAxis;
+  float outer = sdCapsule(p, B, B + A*7.60, 0.85);
+  float inner = sdCapsule(p, B + A*0.15, B + A*9.20, 0.715);
+  float shell = max(outer, -inner);
+  float rim   = sdTorusAx(p, B + A*7.52, A, 0.845, 0.075);
+  return min(shell, rim);
+}
+float mapD(vec3 p){ return mapScene(p).x; }
+vec3 glassNormal(vec3 p){
+  const vec2 e = vec2(1.0,-1.0)*0.0016;
+  return normalize( e.xyy*mapGlass(p+e.xyy) + e.yyx*mapGlass(p+e.yyx) +
+                    e.yxy*mapGlass(p+e.yxy) + e.xxx*mapGlass(p+e.xxx) );
+}
+
+vec3 calcNormal(vec3 p){
+  const vec2 e = vec2(1.0,-1.0)*0.0016;
+  return normalize( e.xyy*mapD(p+e.xyy) + e.yyx*mapD(p+e.yyx) +
+                    e.yxy*mapD(p+e.yxy) + e.xxx*mapD(p+e.xxx) );
+}
+float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k){
+  float res=1.0, t=mint;
+  for(int i=0;i<40;i++){
+    float h = mapD(ro + rd*t);
+    res = min(res, k*h/t);
+    t += clamp(h, 0.03, 0.55);
+    if(res<0.005 || t>maxt) break;
+  }
+  return clamp(res,0.0,1.0);
+}
+float calcAO(vec3 p, vec3 n){
+  float occ=0.0, sca=1.0;
+  for(int i=0;i<5;i++){
+    float h = 0.02 + 0.35*float(i)/4.0;
+    float d = mapD(p + n*h);
+    occ += (h-d)*sca; sca *= 0.72;
+  }
+  return clamp(1.0 - 2.4*occ, 0.0, 1.0);
+}
+
+/* ---------- studio environment ----------
+   A bright soft-box rig is used for REFLECTIONS only; the visible backdrop
+   (background()) stays near-black, the classic product-render cheat that lets
+   polished nickel read as metal against a dark field.                        */
+vec3 envMap(vec3 d, float rough){
+  float y = d.y;
+  vec3 sky = mix(vec3(0.026,0.028,0.036), vec3(0.50,0.55,0.66), smoothstep(-0.30,0.60,y));
+  vec3 L1 = normalize(vec3(-0.42,0.80,0.42));
+  vec3 L2 = normalize(vec3( 0.90,0.22,-0.35));
+  float s = mix(300.0, 2.0, rough*rough);
+  sky += vec3(1.00,0.98,0.94) * pow(max(dot(d,L1),0.0), s)      * mix(9.0,1.6,rough);
+  sky += vec3(0.52,0.68,1.00) * pow(max(dot(d,L2),0.0), s*0.30) * mix(3.2,0.7,rough);
+  /* tall vertical soft-box → the long specular streak down the barrel */
+  vec3 dh = vec3(d.x, 0.0, d.z);
+  float lh = length(dh);
+  if(lh > 1e-4){
+    dh /= lh;
+    vec3 SD = normalize(vec3(-0.86, 0.0, 0.51));
+    float strip = pow(max(dot(dh, SD), 0.0), mix(70.0, 4.0, rough))
+                * (1.0 - smoothstep(0.30, 0.92, abs(d.y)));
+    sky += vec3(1.0,0.99,0.96) * strip * mix(3.0, 0.55, rough);
+    vec3 SD2 = normalize(vec3(0.62, 0.0, 0.78));
+    float strip2 = pow(max(dot(dh, SD2), 0.0), mix(46.0, 3.0, rough))
+                 * (1.0 - smoothstep(0.25, 0.85, abs(d.y)));
+    sky += vec3(0.62,0.72,0.95) * strip2 * mix(1.3, 0.3, rough);
+  }
+  /* the white bench below throws a broad, soft bounce back up into the
+     underside of everything standing on it */
+  vec3 bounce = vec3(0.34,0.345,0.35) * (1.0 - smoothstep(-0.85, 0.02, y));
+  sky = mix(sky, bounce, (1.0 - smoothstep(-0.60, 0.03, y)) * 0.85);
+  return sky * mix(0.10, 1.0, uRoom);
+}
+vec3 envIrr(vec3 n){
+  vec3 amb = mix(vec3(0.030,0.033,0.042), vec3(0.19,0.21,0.26), 0.5+0.5*n.y);
+  amb += vec3(0.30,0.30,0.31)*max(dot(n, normalize(vec3(-0.42,0.80,0.42))),0.0)*0.35;
+  return amb * mix(0.12, 1.0, uRoom);
+}
+/* The bench is deliberately NOT part of the dynamic material pipeline. It is
+   shaded from position alone — a fixed studio falloff, a fixed contact shadow
+   and a baked texture — so nothing the experiment does can alter it. */
+vec3 benchStatic(vec3 hp, vec3 rd){
+  float rr = length(hp.xz);
+  float g  = fbm3(hp*1.5);
+  float sp = fbm2(hp*38.0);
+  vec3 tex = vec3(0.960,0.962,0.964) * (0.965 + 0.055*g) * (0.955 + 0.085*sp);
+
+  /* fixed key-light pool, centred on the burner, exactly as if it were baked */
+  float pool = 1.0 - 0.55*smoothstep(2.5, 27.0, rr);
+  /* fixed soft contact shadow under the base disc */
+  float contact = 1.0 - 0.42*(1.0 - smoothstep(4.0, 7.2, rr));
+  /* a hint of the softbox falling off to the far side, again fixed */
+  float sweep = 0.90 + 0.14*smoothstep(6.0, -6.0, hp.x + hp.z*0.35);
+
+  return tex * (0.735 * pool * contact * sweep);
+}
+
+/* the visible backdrop */
+vec3 background(vec3 d){
+  float y = d.y;
+  /* Flat below the horizon: any ray that misses the bench disc must land on
+     exactly the value the bench fades to, or a dark ring appears at the edge. */
+  float yy = max(y, 0.0);
+  vec3 c = mix(vec3(0.0048,0.0050,0.0054), vec3(0.019,0.0195,0.0205), smoothstep(-0.45,0.75,yy));
+  c += vec3(0.030,0.0305,0.0315) * pow(max(0.0, 1.0-abs(yy*1.6)), 6.0) * 0.55;
+  return c * mix(0.30, 1.0, uRoom);
+}
+
+/* ---------- flame colour science ---------- */
+/* soft blackbody approximation, normalised to ~1 at peak channel */
+vec3 blackbody(float T){
+  T = clamp(T, 1000.0, 6500.0);
+  float t = T/100.0;
+  vec3 c;
+  c.r = 1.0;
+  c.g = clamp((99.47 * log(t) - 161.12)/255.0, 0.0, 1.0);
+  c.b = (t <= 19.0) ? 0.0 : clamp((138.52 * log(t-10.0) - 305.04)/255.0, 0.0, 1.0);
+  if(t < 66.0){
+    c.r = 1.0;
+    c.g = clamp((99.47 * log(t) - 161.12)/255.0, 0.0, 1.0);
+  }
+  return c;
+}
+
+/* --- true thermal radiation of a hot solid -------------------------------
+   Chromaticity from the Planckian locus (Kim et al. cubic fit), radiance
+   scaled steeply with temperature. Combined with the ACES tonemap this
+   reproduces the real progression a smith watches: invisible below ~525 °C,
+   then dull red, red, cherry, orange, yellow, and finally white-hot.       */
+vec2 planckLocus(float T){
+  T = clamp(T, 1000.0, 25000.0);
+  float x = (T <= 4000.0)
+    ? (-0.2661239e9/(T*T*T) - 0.2343589e6/(T*T) + 0.8776956e3/T + 0.179910)
+    : (-3.0258469e9/(T*T*T) + 2.1070379e6/(T*T) + 0.2226347e3/T + 0.240390);
+  float y;
+  if(T <= 2222.0)      y = -1.1063814*x*x*x - 1.34811020*x*x + 2.18555832*x - 0.20219683;
+  else if(T <= 4000.0) y = -0.9549476*x*x*x - 1.37418593*x*x + 2.09137015*x - 0.16748867;
+  else                 y =  3.0817580*x*x*x - 5.87338670*x*x + 3.75112997*x - 0.37001483;
+  return vec2(x,y);
+}
+vec3 bbChroma(float T){
+  vec2 xy = planckLocus(T);
+  float X = xy.x/xy.y, Y = 1.0, Z = (1.0-xy.x-xy.y)/xy.y;
+  vec3 c = vec3( 3.2406*X - 1.5372*Y - 0.4986*Z,
+                -0.9689*X + 1.8758*Y + 0.0415*Z,
+                 0.0557*X - 0.2040*Y + 1.0570*Z);
+  c = max(c, 0.0);
+  return c / max(1e-4, max(c.r, max(c.g, c.b)));
+}
+/* HDR emission of a body at T kelvin */
+vec3 incand(float T){
+  float p = pow(max(T - 555.0, 0.0)*0.001, 3.55) * 8.0;
+  return bbChroma(T) * p;
+}
+
+/* aeration-derived look parameters (kept in one place) */
+float sootFrac(){ return 1.0 - smoothstep(0.045, 0.92, uAir); }
+
+vec3 flameKeyColor(){
+  float s = sootFrac();
+  vec3 hot  = blackbody(mix(1750.0, 1500.0, s));
+  vec3 chem = mix(vec3(0.42,0.30,1.00), vec3(0.16,0.55,1.00), smoothstep(0.55,1.0,uAir));
+  return normalize(mix(chem, hot, s*s) + 1e-4);
+}
+
+/* Density + emission of the flame volume at world point p */
+void flameSample(vec3 p, float t, out float dens, out vec3 emis){
+  dens = 0.0; emis = vec3(0.0);
+
+  float y0 = uBaseY;
+  float H  = uFH;
+  float h  = p.y - y0;
+  if(h < -0.35 || h > H*1.22){ return; }
+
+  float hn = clamp(h / H, 0.0, 1.4);
+  float soot = sootFrac();
+
+  /* --- gas has to get around anything held in the flame: it accelerates
+         past the sides and leaves a disturbed wake above --- */
+  float wake = 0.0;
+  if(uObsAmt > 0.01){
+    vec2  dv = p.xz - uObsPos.xz;
+    float dl = length(dv);
+    float dy = p.y - uObsPos.y;
+    float near = exp(-pow(dy/(uObsR*2.6), 2.0)) * exp(-pow(dl/(uObsR*2.6), 2.0));
+    float k = uObsAmt * near * 1.05;
+    if(k > 0.002 && dl > 1e-4) p.xz = uObsPos.xz + dv/(1.0 + k);
+    wake = uObsAmt * smoothstep(0.0, uObsR*1.4, dy) * exp(-pow(dy/(uObsR*5.0),2.0))
+                   * exp(-pow(dl/(uObsR*3.0), 2.0));
+  }
+
+  /* --- lateral sway: strong & slow when un-aerated, tight when roaring --- */
+  float swayAmp = mix(1.05, 0.06, smoothstep(0.0,0.75,uAir));
+  vec2 off;
+  off.x = sin(p.y*0.62 - t*2.35) * 0.85 + sin(p.y*0.33 + t*1.45) * 0.55;
+  off.y = cos(p.y*0.55 - t*2.05) * 0.80 + cos(p.y*0.29 - t*1.25) * 0.45;
+  off *= swayAmp * pow(hn, 1.45) * (0.35 + 0.65*uGas);
+  vec2 xz = p.xz - off*1.05;
+  float r = length(xz);
+
+  /* --- envelopes --- */
+  float baseR = mix(0.30, 0.56, uGas) * mix(0.72, 1.06, smoothstep(0.0,0.5,uAir));
+  float Rm = baseR * (0.92 + 0.55*hn) * (1.0 - 0.72*smoothstep(0.62,1.12,hn));
+  Rm = max(Rm, 0.02);
+
+  float coneH = H * (0.055 + 0.30*uAir) * (0.55 + 0.45*uGas);
+  float Rc = baseR*0.82 * (1.0 - clamp(h/max(coneH,0.001), 0.0, 1.0));
+
+  /* --- turbulence --- */
+  float turb = mix(1.0, 0.16, smoothstep(0.05,0.9,uAir));
+  float rise = mix(1.5, 5.2, uAir) * (0.6 + 0.6*uGas);
+  vec3 np = vec3(xz*mix(2.6,4.4,uAir), p.y*mix(0.95,1.6,uAir) - t*rise);
+  float n  = fbm3(np*0.85);
+  float n2 = fbm2(np*2.3 + 17.0);
+
+  float radial = smoothstep(Rm, Rm*0.28, r);
+  float top    = 1.0 - smoothstep(0.70 + 0.22*(1.0-turb), 1.12, hn);
+  float bot    = smoothstep(-0.05, 0.10, h);
+
+  float d = radial*top*bot;
+  d *= mix(1.0, clamp(n*2.25 - 0.26, 0.0, 2.2), turb*0.88);
+  d *= mix(1.0, 0.62 + 0.85*n2, turb*0.5);
+  d *= mix(1.0, 0.45 + 1.25*n2, wake*0.85);          /* churned wake above the obstacle */
+  d = max(d, 0.0);
+
+  /* --- premixed inner cone --- */
+  float coneMask = smoothstep(Rc + 0.075, Rc - 0.055, r)
+                 * (1.0 - smoothstep(coneH*0.70, coneH*1.02, h))
+                 * smoothstep(-0.02, 0.10, h);
+  coneMask *= mix(1.0, 0.75 + 0.5*n2, 0.35);
+
+  /* --- emission --- */
+  /* mantle: sooty incandescence at low air, chemiluminescent blue/violet at high air */
+  vec3 hotCol = blackbody(mix(1720.0, 1450.0, soot));
+  vec3 tipCol = mix(vec3(0.62,0.34,1.00), vec3(1.00,0.30,0.16), soot);
+  vec3 mantle = mix(hotCol, tipCol, smoothstep(0.28, 1.0, hn));
+  vec3 chemM  = mix(vec3(0.40,0.26,1.00), vec3(0.10,0.24,1.00), smoothstep(0.50,1.0,uAir));
+  mantle = mix(chemM, mantle, clamp(soot*1.25,0.0,1.0));
+  float mantleI = mix(0.30, 6.4, pow(soot,1.15));
+
+  /* the very base of a luminous flame has a small blue skirt of premixed burning */
+  float skirt = (1.0 - smoothstep(0.0, 0.09, hn)) * (0.25 + 0.75*uAir);
+  mantle += vec3(0.15,0.55,1.0) * skirt * 0.9;
+
+  /* inner cone: white-hot when still sooty, teal when fully aerated */
+  vec3 coneCol = mix(vec3(1.00,0.90,0.68), vec3(0.32,1.00,0.92), smoothstep(0.12,0.85,uAir));
+  float coneI  = 15.0 * smoothstep(0.025, 0.34, uAir);
+
+  /* Metal-salt line emission. The salt is vaporised AT the loop, so only the
+     gas that has already passed it carries the colour — everything upstream
+     of the sample stays the burner's own blue. */
+  if(uSaltAmt > 0.001){
+    float plume = smoothstep(uSaltY - 0.30, uSaltY + 0.75, p.y);
+    /* it starts as a narrow streak off the loop and spreads as it rises */
+    float spread = 0.34 + 0.85*clamp((p.y - uSaltY)/2.6, 0.0, 1.0);
+    plume *= smoothstep(spread + 0.30, spread*0.35, r) * 0.55 + 0.45*plume;
+    plume = clamp(plume, 0.0, 1.0);
+    float sa = uSaltAmt * plume;
+    mantle  = mix(mantle, uSaltCol, sa*0.94);
+    mantleI = mix(mantleI, max(mantleI, 3.6)*1.20, sa);
+    coneCol = mix(coneCol, uSaltCol, sa*0.55);
+  }
+
+  dens = d;
+  emis = mantle*mantleI*d + coneCol*coneI*coneMask;
+
+  /* strike-back: burning inside the tube glows green-blue and is confined */
+  emis *= 1.0;
+}
+
+/* ray vs. vertical cylinder shell for flame bounds */
+bool flameBounds(vec3 ro, vec3 rd, float Rb, float y0, float y1, out float t0, out float t1){
+  float a = dot(rd.xz, rd.xz);
+  float b = dot(ro.xz, rd.xz);
+  float c = dot(ro.xz, ro.xz) - Rb*Rb;
+  t0 = 0.0; t1 = 0.0;
+  if(a < 1e-6){
+    if(c > 0.0) return false;
+    t0 = -1e9; t1 = 1e9;
+  } else {
+    float disc = b*b - a*c;
+    if(disc < 0.0) return false;
+    float sq = sqrt(disc);
+    t0 = (-b - sq)/a; t1 = (-b + sq)/a;
+  }
+  /* clip against y slab */
+  if(abs(rd.y) > 1e-6){
+    float ta = (y0 - ro.y)/rd.y, tb = (y1 - ro.y)/rd.y;
+    t0 = max(t0, min(ta,tb)); t1 = min(t1, max(ta,tb));
+  } else {
+    if(ro.y < y0 || ro.y > y1) return false;
+  }
+  t0 = max(t0, 0.0);
+  return t1 > t0;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy / uRes) * 2.0 - 1.0;
+  float aspect = uRes.x / uRes.y;
+  vec3 ro = uCamPos;
+  vec3 rd = normalize(uCamMat * vec3((uv.x + uShift)*aspect, uv.y, -uFocal));
+
+  /* ---------------- solid pass ---------------- */
+  float t = 0.05, matID = -1.0;
+  vec3  hp = vec3(0.0);
+  for(int i=0;i<180;i++){
+    hp = ro + rd*t;
+    vec2 m = mapScene(hp);
+    if(m.x < 0.0009*t){ matID = m.y; break; }
+    t += m.x*0.82;
+    if(t > FAR){ matID = -1.0; break; }
+  }
+  float tScene = (matID > 0.0) ? t : FAR;
+
+  vec3 col;
+  /* The flame really does light the room, but a fully saturated point light
+     made every surface take on the colour of whatever was reacting. Keep the
+     falloff and the sense of being lit; drop most of the hue. */
+  vec3 fkc = flameKeyColor();
+  float fkl = dot(fkc, vec3(0.299, 0.587, 0.114));
+  vec3 flameLightCol = vec3(fkl) * (0.55 + 1.35*uGas) * uLit * 0.42;
+  vec3 flamePos = vec3(0.0, uBaseY + uFH*0.16, 0.0);
+
+  bool isBench = (matID > 3.5 && matID < 4.5);
+  float bloomMask = 1.0;
+
+  if(isBench){
+    /* Fade to the backdrop as it appears just above the horizon, not to
+       background(rd) itself — a downward ray samples a much darker part of the
+       gradient, which left a dark ring around the far edge of the bench. */
+    vec3 horizon = background(vec3(rd.x, 0.0, rd.z));
+    float far = smoothstep(12.0, 29.0, length(hp.xz));
+    col = mix(benchStatic(hp, rd), horizon, far);
+    /* The tabletop itself receives no bloom at all — that is what keeps it
+       static. Over the same range where it dissolves into the backdrop, bloom
+       fades back in, so the two meet with no seam. */
+    bloomMask = far;
+  } else if(matID > 0.0){
+    vec3 n = calcNormal(hp);
+    vec3 v = -rd;
+
+    vec3 albedo; float rough, metal;
+    if(matID > 15.5){
+      /* Nickel-plated brass. Turned on a lathe, so the barrel carries fine
+         circumferential tool marks; those streak the highlight vertically.
+         Micro-scratches and patches of wear break up the mirror. */
+      float ang  = atan(hp.z, hp.x);
+      float lathe = fbm2(vec3(ang*8.0, hp.y*210.0, 0.0));
+      float micro = fbm2(hp*145.0);
+      float wear  = smoothstep(0.34, 0.86, fbm3(hp*4.2));
+      float smudge= smoothstep(0.45, 0.95, fbm3(hp*11.0));
+      albedo = vec3(0.905, 0.893, 0.866);
+      metal  = 1.0;
+      rough  = 0.062 + 0.085*lathe + 0.030*micro + 0.115*wear + 0.055*smudge;
+      albedo *= 1.0 - wear*0.11 - smudge*0.05;
+      /* anisotropy, faked: nudge the normal along the axis so the softbox
+         reflection smears into a vertical streak down the barrel */
+      n = normalize(n + vec3(0.0, (lathe - 0.5)*0.055, 0.0)
+                      + (vec3(fbm2(hp*90.0), fbm2(hp*90.0+3.0), fbm2(hp*90.0+7.0))-0.5)*0.030);
+    } else if(matID < 1.5){                /* nickel-plated steel: tongs, arms */
+      albedo = vec3(0.855,0.875,0.905); rough = 0.115; metal = 1.0;
+      float sc = fbm2(hp*24.0);
+      rough += sc*0.055;
+      albedo *= 0.94 + 0.10*sc;
+    } else if(matID < 2.5){                /* hammered cast-iron base */
+      float ham = fbm3(hp*7.5);
+      albedo = vec3(0.395,0.408,0.418) * (0.78 + 0.44*ham);
+      rough = 0.34 + 0.26*ham; metal = 0.34;
+      n = normalize(n + (vec3(fbm2(hp*30.0),fbm2(hp*30.0+5.0),fbm2(hp*30.0+9.0))-0.5)*0.20);
+    } else if(matID < 3.5){                /* black bakelite knob */
+      albedo = vec3(0.030,0.031,0.034); rough = 0.30; metal = 0.0;
+    } else if(matID > 5.5 && matID < 6.5){ /* nichrome wire */
+      albedo = vec3(0.52,0.51,0.49); rough = 0.34; metal = 1.0;
+    } else if(matID > 6.5 && matID < 7.5){ /* cork / wooden handle */
+      float w = fbm3(hp*9.0);
+      albedo = vec3(0.34,0.22,0.12)*(0.7+0.6*w); rough = 0.78; metal = 0.0;
+    } else if(matID > 8.5 && matID < 9.5){ /* the specimen / tube contents */
+      albedo = uSolidCol; rough = 0.72; metal = 0.0;
+      albedo *= 0.85 + 0.35*fbm3(hp*16.0);
+      /* as it goes molten the surface turns to a mirror-bright liquid */
+      rough  = mix(rough, 0.055, uMelt);
+      metal  = mix(metal, 1.0,   uMelt);
+      albedo = mix(albedo, uSolidCol*1.15 + 0.05, uMelt);
+    } else if(matID < 10.5){               /* liquid metal in the crucible */
+      albedo = uSolidCol*1.1 + 0.04; rough = 0.045; metal = 1.0;
+      n = normalize(n + (vec3(fbm2(hp*13.0+uTime*1.7),0.0,fbm2(hp*13.0+9.0-uTime*1.3))-0.5)*0.35*uBoil);
+    } else if(matID < 11.5){               /* glazed crucible */
+      albedo = vec3(0.62,0.60,0.57)*(0.8+0.35*fbm3(hp*11.0)); rough = 0.42; metal = 0.0;
+    } else if(matID < 12.5){               /* falling droplet */
+      albedo = uSolidCol*1.15 + 0.05; rough = 0.05; metal = 1.0;
+    } else if(matID < 13.5){               /* frozen puddle */
+      albedo = uSolidCol*0.85; rough = mix(0.10, 0.55, smoothstep(1200.0, 500.0, uPudT)); metal = 0.9;
+    } else if(matID < 14.5){               /* aqueous solution */
+      albedo = uSolidCol*1.25 + 0.03; rough = 0.035; metal = 0.0;
+      n = normalize(n + (vec3(fbm2(hp*9.0+uTime*1.9),0.0,fbm2(hp*9.0+7.0-uTime*1.5))-0.5)*0.40*uBoil);
+    } else if(matID < 15.5){               /* crystal crust */
+      float g = fbm3(hp*22.0);
+      albedo = mix(uCrystCol, vec3(1.0), 0.11) * (1.10 + 0.50*g);
+      rough  = 0.14 + 0.32*g; metal = 0.0;
+      n = normalize(n + (vec3(fbm2(hp*26.0),fbm2(hp*26.0+4.0),fbm2(hp*26.0+8.0))-0.5)*0.55);
+    } else {                               /* white laminate bench top */
+      float g  = fbm3(hp*1.5);
+      float sp = fbm2(hp*38.0);
+      albedo = vec3(0.955,0.958,0.962) * (0.96 + 0.06*g) * (0.95 + 0.09*sp);
+      rough = 0.38 + 0.15*g; metal = 0.02;
+      n = normalize(n + (vec3(fbm2(hp*7.0),0.0,fbm2(hp*7.0+3.0))-0.5)*0.10);
+    }
+
+    vec3 r  = reflect(rd, n);
+    vec3 F0 = mix(vec3(0.045), albedo, metal);
+    float fres = pow(clamp(1.0 - max(dot(n,v),0.0), 0.0, 1.0), 5.0);
+    vec3 F = F0 + (1.0-F0)*fres*(1.0-rough*0.75);
+
+    float ao = calcAO(hp, n);
+    /* contents sitting in a concave dish would otherwise be crushed by AO */
+    if(matID > 13.5 && matID < 15.5) ao = mix(ao, 1.0, 0.62);
+    vec3 L1 = normalize(vec3(-0.42,0.86,0.32));
+    float sh = softShadow(hp + n*0.012, L1, 0.02, 14.0, 12.0);
+
+    col  = envMap(r, rough) * F * ao;
+    col += albedo * (1.0-metal) * envIrr(n) * ao;
+
+    float ndl = max(dot(n, L1), 0.0);
+    vec3 hvec = normalize(L1 + v);
+    float spec = pow(max(dot(n,hvec),0.0), mix(900.0, 12.0, rough));
+    col += (albedo*(1.0-metal)*0.55 + F*spec*mix(3.0,0.4,rough)) * ndl * sh * 1.05 * mix(0.25,1.0,uRoom);
+
+    /* --- light cast by the flame --- */
+    if(uLit > 0.001){
+      vec3 ld = flamePos - hp; float dist = length(ld); ld /= max(dist,1e-4);
+      float att = 1.0/(1.0 + dist*dist*0.30);
+      float fn  = max(dot(n, ld), 0.0);
+      vec3 fh   = normalize(ld + v);
+      float fsp = pow(max(dot(n,fh),0.0), mix(700.0, 10.0, rough));
+      col += flameLightCol * att * (albedo*(1.0-metal*0.55)*fn*1.7 + F*fsp*mix(2.2,0.3,rough)) * (0.35+0.65*ao);
+    }
+
+    /* --- incandescence of the heated sample / wire / tongs --- */
+    if((matID > 5.5 && matID < 6.5) || (matID > 8.5 && matID < 11.5)){
+      float em = (matID > 10.5 && matID < 11.5) ? 0.22 : 1.0;   /* the crucible lags behind */
+      col += incand(uSolidT) * em;
+    }
+    if(matID > 11.5 && matID < 12.5) col += incand(uDripT);
+    if(matID > 12.5 && matID < 13.5) col += incand(uPudT);
+    /* the tong jaws pick up heat too, but stay cooler than the specimen */
+    if(uRig == 3 && uSolidT > 800.0 && matID < 1.5){
+      float near = 1.0 - smoothstep(0.6, 3.4, length(hp - uRigPos));
+      col += incand(mix(300.0, uSolidT*0.80, near)) * near;
+    }
+
+    /* --- barrel glowing red from strike-back --- */
+    if(uGlow > 0.001 && matID > 15.5){
+      float band = smoothstep(1.9, 2.6, hp.y) * (1.0 - smoothstep(6.0, 11.5, hp.y));
+      float rr = length(hp.xz);
+      band *= smoothstep(1.15, 0.55, rr);
+      col += incand(mix(600.0, 1420.0, uGlow)) * band;
+    }
+
+  } else {
+    col = background(rd);
+  }
+
+  /* ---------------- volumetric flame ---------------- */
+  if(uLit > 0.001 || uGas > 0.001){
+    float Rb = max(2.2, 1.4 + 1.6*uGas);
+    float ty0 = uBaseY - 0.6;
+    float ty1 = uBaseY + uFH*1.25;
+    float t0, t1;
+    if(flameBounds(ro, rd, Rb, ty0, ty1, t0, t1)){
+      t1 = min(t1, tScene);
+      if(t1 > t0){
+        int   NS = uSteps;
+        float dt = (t1-t0)/float(NS);
+        float jitter = hash13(vec3(gl_FragCoord.xy, uTime*60.0));
+        float tt = t0 + dt*jitter;
+        vec3  L  = vec3(0.0);
+        float T  = 1.0;
+        float soot = sootFrac();
+        float absorb = mix(0.05, 0.85, soot) * (0.5+0.8*uGas);
+        for(int i=0;i<160;i++){
+          if(i >= NS) break;
+          if(T < 0.004) break;
+          vec3 sp = ro + rd*tt;
+          float d; vec3 e;
+          flameSample(sp, uTime, d, e);
+          if(d > 0.0009){
+            L += T * e * uLit * dt;
+            T *= exp(-d*absorb*dt);
+          }
+          tt += dt;
+        }
+        col = col*T + L;
+      }
+    }
+  }
+
+  /* ---------------- vapour inside the test tube ---------------- */
+  if(uRig == 2 && uVapAmt > 0.002){
+    float vt0, vt1;
+    if(rayCyl(ro, rd, uRigPos, uRigAxis, 0.70, 0.18, 7.55, vt0, vt1)){
+      vt1 = min(vt1, tScene);
+      if(vt1 > vt0){
+        float chord = vt1 - vt0;
+        vec3 mp = ro + rd*(vt0+vt1)*0.5;
+        float swirl = 0.62 + 0.55*fbm3(vec3(mp*1.9) + vec3(0.0, -uTime*0.55, uTime*0.3));
+        float aV = 1.0 - exp(-uVapAmt*chord*0.62*swirl);
+        col = mix(col, uVapCol*(0.22 + 0.55*uRoom), aV);
+        col += uVapCol * aV * 0.30;
+      }
+    }
+  }
+
+  /* ---------------- borosilicate glass (analytic, two surfaces) ---------------- */
+  if(uRig == 2){
+    vec3 B = uRigPos, A = uRigAxis;
+    const float GR = 0.85;
+    /* gather up to two hits: far wall then near wall, so both get shaded */
+    float ts[2]; vec3 ns[2]; int nHit = 0;
+    float ct0, ct1;
+    if(rayCyl(ro, rd, B, A, GR, 0.0, 7.60, ct0, ct1)){
+      if(ct1 > 0.02 && ct1 < tScene){ vec3 q = ro+rd*ct1 - B; ts[0]=ct1; ns[0]=normalize(q - A*dot(q,A)); nHit=1; }
+      if(ct0 > 0.02 && ct0 < tScene){ vec3 q = ro+rd*ct0 - B; ts[nHit]=ct0; ns[nHit]=normalize(q - A*dot(q,A)); nHit++; }
+    }
+    /* rounded bottom */
+    {
+      vec3 oc = ro - B;
+      float b = dot(oc, rd), c = dot(oc,oc) - GR*GR, disc = b*b - c;
+      if(disc > 0.0){
+        float t = -b - sqrt(disc);
+        vec3 pp = ro + rd*t;
+        if(t > 0.02 && t < tScene && dot(pp - B, A) < 0.0){
+          if(nHit < 2){ ts[nHit]=t; ns[nHit]=normalize(pp-B); nHit++; }
+          else { ts[1]=t; ns[1]=normalize(pp-B); }
+        }
+      }
+    }
+    vec3 L1 = normalize(vec3(-0.42,0.80,0.42));
+    for(int i=0;i<2;i++){
+      if(i >= nHit) break;
+      vec3 gp = ro + rd*ts[i];
+      vec3 gn = ns[i];
+      float fres = pow(clamp(1.0 - abs(dot(gn, -rd)), 0.0, 1.0), 4.0);
+      float aG = clamp(0.035 + 0.80*fres, 0.0, 0.90) * (i==0 ? 0.55 : 1.0);
+      vec3 gcol = envMap(reflect(rd, gn), 0.02) * (0.05 + 0.95*fres);
+      gcol += vec3(1.0,0.99,0.97)*pow(max(dot(normalize(L1 - rd), gn), 0.0), 1500.0)*5.5*mix(0.2,1.0,uRoom);
+      if(uLit > 0.001){
+        vec3 fp = vec3(0.0, uBaseY + uFH*0.18, 0.0);
+        vec3 fd = normalize(fp - gp);
+        gcol += flameKeyColor()*(0.4+1.2*uGas)*uLit*pow(max(dot(normalize(fd - rd), gn),0.0), 260.0)*1.8;
+      }
+      /* the glass itself gets hot — hottest where the flame licks the base,
+         falling away towards the mouth */
+      float sAx = clamp(dot(gp - B, A)/7.60, 0.0, 1.0);
+      if(uGlassT > 640.0){
+        float Tg = mix(uGlassT, 340.0, smoothstep(0.02, 0.62, sAx));
+        gcol += incand(Tg) * 0.85;
+      }
+      /* condensation band on the cool upper third */
+      if(uCondense > 0.01){
+        float band = smoothstep(0.42, 0.66, sAx) * (1.0 - smoothstep(0.86, 1.0, sAx));
+        float dew  = band * uCondense * (0.55 + 0.45*fbm2(gp*11.0));
+        gcol += vec3(0.62,0.66,0.74) * dew * 0.55;
+        aG = clamp(aG + dew*0.35, 0.0, 0.97);
+      }
+      col = col*(1.0 - aG)*0.985 + gcol*(i==0 ? 0.6 : 1.0);
+    }
+    /* mouth rim catches a bright line of light */
+    float rimD = sdTorusAx(ro + rd*max(0.02, dot(B + A*7.55 - ro, rd)), B + A*7.55, A, GR, 0.06);
+    if(rimD < 0.10) col += vec3(0.55,0.60,0.70) * (1.0 - rimD/0.10) * 0.8;
+  }
+
+  /* ---------------- detonation fireball ---------------- */
+  if(uBoomI > 0.0015){
+    vec3 oc = uBoomPos - ro;
+    float tca = dot(oc, rd);
+    if(tca > 0.0){
+      float dmin = sqrt(max(dot(oc,oc) - tca*tca, 0.0));
+      float occl = smoothstep(tScene - uBoomR*1.2, tScene + uBoomR*0.4, tca);
+      float shell = exp(-pow((dmin - uBoomR)/max(uBoomW,0.03), 2.0));
+      float core  = exp(-pow(dmin/max(uBoomR*0.62,0.06), 2.0));
+      float turb  = 0.55 + 0.75*fbm3(vec3(rd*7.0) + vec3(0.0, -uTime*3.0, 0.0));
+      col += uBoomCol * (shell*turb + core*0.65) * uBoomI * (1.0 - occl*0.85);
+    }
+  }
+
+  /* ---------------- smoke / fume plume ---------------- */
+  if(uSmokeAmt > 0.003){
+    float st0, st1;
+    if(rayCyl(ro, rd, uSmokeSrc, vec3(0.0,1.0,0.0), 3.2, -0.2, 17.0, st0, st1)){
+      st1 = min(st1, tScene);
+      if(st1 > st0){
+        int NS2 = 34;
+        float dt2 = (st1-st0)/float(NS2);
+        float tt2 = st0 + dt2*hash13(vec3(gl_FragCoord.xy*1.7, uTime*37.0));
+        vec3  L2  = vec3(0.0);
+        float T2  = 1.0;
+        vec3 amb  = uSmokeCol * (0.16 + 0.62*uRoom);
+        for(int i=0;i<40;i++){
+          if(i >= NS2 || T2 < 0.02) break;
+          vec3 q = ro + rd*tt2 - uSmokeSrc;
+          float h = q.y;
+          if(h > 0.0){
+            float hn = h/14.0;
+            vec2 drift = vec2(sin(h*0.38 - uTime*0.85), cos(h*0.29 - uTime*0.62)) * 0.85 * hn*hn;
+            float rr2 = length(q.xz - drift);
+            float R2  = 0.30 + 2.35*pow(clamp(hn,0.0,1.0), 0.72);
+            float d2  = smoothstep(R2, R2*0.22, rr2) * (1.0 - smoothstep(0.52, 1.05, hn));
+            float n2  = fbm3(vec3(q.xz*1.35, q.y*0.85 - uTime*1.7));
+            d2 *= clamp(n2*2.1 - 0.38, 0.0, 1.8) * uSmokeAmt;
+            if(d2 > 0.001){
+              /* lit from below by the flame, plus a little sky */
+              float lift = 1.0 - smoothstep(0.0, 5.0, h);
+              vec3 sc = amb + flameKeyColor()*uLit*lift*0.55*(0.3+0.7*uGas);
+              if(uSparks > 0.001){
+                float sp = hash13(floor(vec3(q*7.0) + vec3(0.0, -uTime*11.0, 0.0)));
+                if(sp > 0.9955 - 0.004*uSparks)
+                  sc += incand(mix(1500.0, 2600.0, fract(sp*57.0))) * 8.0 * uSparks;
+              }
+              L2 += T2 * sc * d2 * dt2 * 0.85;
+              T2 *= exp(-d2*dt2*0.95);
+            }
+          }
+          tt2 += dt2;
+        }
+        col = col*T2 + L2;
+      }
+    }
+  }
+
+  /* ---------------- burning magnesium ---------------- */
+  if(uBurn > 0.002){
+    float tc = dot(uRigPos - ro, rd);
+    if(tc > 0.0){
+      vec3 cp = ro + rd*tc;
+      float d2 = dot(uRigPos - cp, uRigPos - cp);
+      float vis = (tc < tScene + 0.6) ? 1.0 : 0.25;
+      col += vec3(1.0,0.985,0.955) * uBurn * 30.0 * vis / (1.0 + 95.0*d2);
+    }
+  }
+
+  col = max(col, 0.0);
+  outC = vec4(col*uEnc, bloomMask);
+}`;
+
+/* ---- bright pass ---- */
+const FS_BRIGHT = `#version 300 es
+precision highp float;
+out vec4 outC;
+uniform sampler2D uTex;
+uniform vec2 uTexel;
+uniform float uThresh;
+uniform float uKnee;
+void main(){
+  vec2 uv = gl_FragCoord.xy*uTexel;
+  vec3 c = texture(uTex, uv).rgb;
+  float br = max(c.r, max(c.g, c.b));
+  float soft = clamp(br - uThresh + uKnee, 0.0, 2.0*uKnee);
+  soft = soft*soft/(4.0*uKnee + 1e-4);
+  float contrib = max(soft, br - uThresh)/max(br, 1e-4);
+  outC = vec4(c*contrib, 1.0);
+}`;
+
+/* ---- 13-tap downsample ---- */
+const FS_DOWN = `#version 300 es
+precision highp float;
+out vec4 outC;
+uniform sampler2D uTex;
+uniform vec2 uTexel;   // texel size of SOURCE
+void main(){
+  vec2 uv = gl_FragCoord.xy*(uTexel*0.5);  // dest is half res of source
+  vec2 t = uTexel;
+  vec3 a = texture(uTex, uv + t*vec2(-2,-2)).rgb;
+  vec3 b = texture(uTex, uv + t*vec2( 0,-2)).rgb;
+  vec3 c = texture(uTex, uv + t*vec2( 2,-2)).rgb;
+  vec3 d = texture(uTex, uv + t*vec2(-1,-1)).rgb;
+  vec3 e = texture(uTex, uv + t*vec2( 1,-1)).rgb;
+  vec3 f = texture(uTex, uv + t*vec2(-2, 0)).rgb;
+  vec3 g = texture(uTex, uv                ).rgb;
+  vec3 h = texture(uTex, uv + t*vec2( 2, 0)).rgb;
+  vec3 i = texture(uTex, uv + t*vec2(-1, 1)).rgb;
+  vec3 j = texture(uTex, uv + t*vec2( 1, 1)).rgb;
+  vec3 k = texture(uTex, uv + t*vec2(-2, 2)).rgb;
+  vec3 l = texture(uTex, uv + t*vec2( 0, 2)).rgb;
+  vec3 m = texture(uTex, uv + t*vec2( 2, 2)).rgb;
+  vec3 r = (d+e+i+j)*0.125 + (a+c+k+m)*0.03125 + (b+f+h+l)*0.0625 + g*0.125;
+  outC = vec4(r,1.0);
+}`;
+
+/* ---- tent upsample (additive) ---- */
+const FS_UP = `#version 300 es
+precision highp float;
+out vec4 outC;
+uniform sampler2D uTex;
+uniform vec2 uTexel;   // texel size of SOURCE
+uniform float uRadius;
+void main(){
+  vec2 uv = gl_FragCoord.xy*(uTexel*2.0); // dest is 2x res of source
+  vec2 t = uTexel*uRadius;
+  vec3 s = texture(uTex, uv + vec2(-t.x, -t.y)).rgb
+         + texture(uTex, uv + vec2( 0.0, -t.y)).rgb*2.0
+         + texture(uTex, uv + vec2( t.x, -t.y)).rgb
+         + texture(uTex, uv + vec2(-t.x,  0.0)).rgb*2.0
+         + texture(uTex, uv                    ).rgb*4.0
+         + texture(uTex, uv + vec2( t.x,  0.0)).rgb*2.0
+         + texture(uTex, uv + vec2(-t.x,  t.y)).rgb
+         + texture(uTex, uv + vec2( 0.0,  t.y)).rgb*2.0
+         + texture(uTex, uv + vec2( t.x,  t.y)).rgb;
+  outC = vec4(s*(1.0/16.0), 1.0);
+}`;
+
+/* ---- final composite ---- */
+const FS_FINAL = `#version 300 es
+precision highp float;
+out vec4 outC;
+uniform sampler2D uBase;
+uniform sampler2D uBloom;
+uniform vec2  uRes;
+uniform float uTime;
+uniform float uExposure;
+uniform float uBloomAmt;
+uniform float uDec;
+uniform vec3  uCamPos;
+uniform mat3  uCamMat;
+uniform float uFocal;
+uniform float uShift;
+uniform float uShimmer;
+uniform float uFlameTop;
+uniform float uFlash;      // full-frame blast flash
+uniform vec2  uShockPos;   // blast centre in uv space
+uniform float uShockR;
+uniform float uShock;
+
+float hash13(vec3 p){
+  p = fract(p*0.3183099 + vec3(0.1,0.2,0.3));
+  p *= 17.0;
+  return fract(p.x*p.y*p.z*(p.x+p.y+p.z));
+}
+float vnoise(vec3 x){
+  vec3 i=floor(x), f=fract(x); f=f*f*(3.0-2.0*f);
+  return mix(mix(mix(hash13(i),hash13(i+vec3(1,0,0)),f.x),
+                 mix(hash13(i+vec3(0,1,0)),hash13(i+vec3(1,1,0)),f.x),f.y),
+             mix(mix(hash13(i+vec3(0,0,1)),hash13(i+vec3(1,0,1)),f.x),
+                 mix(hash13(i+vec3(0,1,1)),hash13(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+vec3 aces(vec3 x){
+  const float a=2.51,b=0.03,c=2.43,d=0.59,e=0.14;
+  return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+}
+void main(){
+  vec2 uv = gl_FragCoord.xy/uRes;
+  vec2 ndc = uv*2.0-1.0;
+  float aspect = uRes.x/uRes.y;
+
+  /* --- convective heat shimmer above the flame --- */
+  vec2 duv = vec2(0.0);
+  if(uShimmer > 0.001){
+    vec3 rd = normalize(uCamMat*vec3((ndc.x+uShift)*aspect, ndc.y, -uFocal));
+    vec2 ro2 = uCamPos.xz, rd2 = rd.xz;
+    float den = dot(rd2,rd2);
+    if(den > 1e-6){
+      float tc = -dot(ro2,rd2)/den;
+      if(tc > 0.0){
+        vec3 pc = uCamPos + rd*tc;
+        float rad = length(pc.xz);
+        float above = smoothstep(0.0, 3.2, pc.y - uFlameTop);
+        float fall  = 1.0 - smoothstep(0.0, 12.0, pc.y - uFlameTop);
+        float lat   = 1.0 - smoothstep(0.6, 2.8, rad);
+        float amt = above*fall*lat*uShimmer;
+        if(amt > 0.001){
+          float n1 = vnoise(vec3(pc.xz*2.4, pc.y*1.1 - uTime*2.6));
+          float n2 = vnoise(vec3(pc.zx*3.1 + 9.0, pc.y*1.5 - uTime*3.4));
+          duv = (vec2(n1,n2)-0.5)*amt*0.0055;
+        }
+      }
+    }
+  }
+
+  /* --- blast shockwave: a refracting ring travelling outwards --- */
+  if(uShock > 0.0015){
+    vec2 dv = (uv - uShockPos) * vec2(aspect, 1.0);
+    float rr = length(dv);
+    float ring = exp(-pow((rr - uShockR)/0.045, 2.0));
+    duv += (dv/max(rr,1e-4)) * ring * uShock * 0.035 / vec2(aspect, 1.0);
+  }
+
+  vec4 baseS = texture(uBase,  uv+duv);
+  vec3 base  = baseS.rgb*uDec;
+  float bloomMask = baseS.a;          /* 0 on the static bench */
+  vec3 bloom = texture(uBloom, uv+duv).rgb*uDec;
+
+  /* slight chromatic aberration towards the edges */
+  float ca = 0.0016*dot(ndc,ndc);
+  base.r = texture(uBase, uv+duv + ndc*ca).r*uDec;
+  base.b = texture(uBase, uv+duv - ndc*ca).b*uDec;
+
+  /* Bloom keeps the flame glowing, but its colour must not wash the room.
+     Desaturate what spreads; the flame core keeps its own hue. */
+  vec3 bl = bloom*uBloomAmt*bloomMask;
+  float bll = dot(bl, vec3(0.299, 0.587, 0.114));
+  bl = mix(vec3(bll), bl, 0.55);
+  vec3 c = base + bl;
+  if(uFlash > 0.0005){
+    float fall = 1.0 - 0.45*dot(ndc,ndc);
+    c += vec3(1.00,0.86,0.66) * uFlash * max(fall, 0.0);
+  }
+  c *= uExposure;
+  c = aces(c);
+  c = pow(c, vec3(1.0/2.2));
+
+  /* vignette + grain */
+  float vig = 1.0 - 0.30*dot(ndc*vec2(0.92,1.0), ndc*vec2(0.92,1.0));
+  c *= clamp(vig,0.0,1.0);
+  float g = hash13(vec3(gl_FragCoord.xy, floor(uTime*60.0)));
+  c += (g-0.5)*0.014;
+
+  outC = vec4(c, 1.0);
+}`;
+
+/* ------------------------------------------------------------------ */
+/* GL plumbing                                                         */
+/* ------------------------------------------------------------------ */
+let prog = {}, rt = {}, hdrOK = true, ENC = 1.0, DEC = 1.0;
+
+function compile(type, src, name){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    const log = gl.getShaderInfoLog(s);
+    console.error('Shader compile error ['+name+']:\n'+log);
+    fatal('Shader compile error in <b>'+name+'</b>:<pre style="text-align:left;white-space:pre-wrap;font-size:11px">'+
+          log.replace(/[<>]/g,'')+'</pre>');
+    throw new Error(log);
+  }
+  return s;
+}
+function link(fsSrc, name){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VS, name+':vs'));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fsSrc, name+':fs'));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)){
+    const log = gl.getProgramInfoLog(p);
+    fatal('Program link error in <b>'+name+'</b>: '+log);
+    throw new Error(log);
+  }
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){
+    const info = gl.getActiveUniform(p,i);
+    u[info.name] = gl.getUniformLocation(p, info.name);
+    if(info.name.endsWith('[0]')) u[info.name.slice(0,-3)] = u[info.name];
+  }
+  return {p, u};
+}
+
+let vao = null;
+function initGL(){
+  const extF = gl.getExtension('EXT_color_buffer_float');
+  const extH = gl.getExtension('EXT_color_buffer_half_float');
+  hdrOK = !!(extF || extH);
+  gl.getExtension('OES_texture_float_linear');
+  if(!hdrOK){ ENC = 1/24; DEC = 24; }
+
+  vao = gl.createVertexArray();
+  prog.scene  = link(FS_SCENE,  'scene');
+  prog.bright = link(FS_BRIGHT, 'bright');
+  prog.down   = link(FS_DOWN,   'down');
+  prog.up     = link(FS_UP,     'up');
+  prog.final  = link(FS_FINAL,  'final');
+}
+
+function makeRT(w,h){
+  w = Math.max(1, w|0); h = Math.max(1, h|0);
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  if(hdrOK) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8,   w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return {tex, fbo, w, h};
+}
+function delRT(r){ if(r){ gl.deleteTexture(r.tex); gl.deleteFramebuffer(r.fbo); } }
+
+const MIPS = 3;   // deliberately short: a wide chain tints the entire frame
+function resizeTargets(w,h){
+  delRT(rt.hdr); rt.hdr = makeRT(w,h);
+  if(rt.mips) rt.mips.forEach(delRT);
+  rt.mips = [];
+  let mw = w>>1, mh = h>>1;
+  for(let i=0;i<MIPS;i++){
+    if(mw<2||mh<2) break;
+    rt.mips.push(makeRT(mw,mh));
+    mw >>= 1; mh >>= 1;
+  }
+}
+
+function drawQuad(){ gl.bindVertexArray(vao); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+
+/* ------------------------------------------------------------------ */
+/* Simulation state                                                    */
+/* ------------------------------------------------------------------ */
+const S = {
+  air: 0.0,           // collar opening 0..1 (user)
+  gas: 0.55,          // needle valve 0..1 (user)
+  lit: false,
+  litE: 0,            // eased flame presence
+  glow: 0,            // barrel red heat from strike-back
+  flashback: false,
+  liftoff: false,
+  labels: false,
+  sound: false,
+  spin: false,
+  darkroom: false,
+  exposure: 1.15,
+  quality: 2,
+  time: 0,
+  /* v2 — fuel + chemistry */
+  fuel: 'methane',
+  rig: 0,            // 0 none · 1 nichrome wire · 2 test tube
+  sample: null,      // key into SALTS or TUBES
+  inFlame: false,    // user has swung the rig into the flame
+  rigT: 0,           // eased 0..1
+  sampleTemp: 20,
+  progress: 0,       // reaction extent 0..1
+  burn: 0,           // Mg brilliance
+  burnt: false,
+  contam: 0,         // sodium contamination of the wire
+  contamCol: [1,0.70,0.10],
+  glassT: 293,       // tube glass temperature, K
+  melt: 0, sag: 0, boil: 0, level: 1, remain: 1,
+  dripAcc: 0, drips: [], dripT: 293,
+  pud: {pos:[0,0.99,0], r:0, T:293},
+  boom: {t:99, dur:1, pos:[0,0,0], power:0, col:[1,0.72,0.35]},
+  bumpAcc: 0, flare: 0, popped: false,
+  conc: 0, cryst: 0, dehyd: 0,
+  rate: 0,           // current reaction rate, /s
+  tempHist: [],
+  histAcc: 0
+};
+
+/* ------------------------------------------------------------------ */
+/* Flame-test salts — colours are the dominant visible emission lines  */
+/* ------------------------------------------------------------------ */
+const SALTS = [
+ {k:'li', n:'Lithium chloride',    f:'LiCl',       col:[1.00,0.13,0.16], lines:[670.8,610.4],       obs:'Crimson red', persist:0.20},
+ {k:'na', n:'Sodium chloride',     f:'NaCl',       col:[1.00,0.70,0.10], lines:[589.0,589.6],       obs:'Intense golden yellow — the D-lines are so strong they mask every other metal', persist:1.00},
+ {k:'k',  n:'Potassium chloride',  f:'KCl',        col:[0.74,0.34,1.00], lines:[766.5,404.4],       obs:'Lilac — view through cobalt-blue glass to filter out any sodium', persist:0.18},
+ {k:'ca', n:'Calcium chloride',    f:'CaCl₂',      col:[1.00,0.38,0.09], lines:[622,553],           obs:'Orange-red (brick red)', persist:0.18},
+ {k:'sr', n:'Strontium chloride',  f:'SrCl₂',      col:[1.00,0.10,0.22], lines:[682,605,460],       obs:'Scarlet crimson', persist:0.18},
+ {k:'ba', n:'Barium chloride',     f:'BaCl₂',      col:[0.44,1.00,0.24], lines:[553.5,524.2,513.7], obs:'Pale apple green', persist:0.18},
+ {k:'cu', n:'Copper(II) chloride', f:'CuCl₂',      col:[0.18,1.00,0.68], lines:[578,515,510],       obs:'Blue-green; the chloride gives a vivid emerald edge', persist:0.25},
+ {k:'cs', n:'Caesium chloride',    f:'CsCl',       col:[0.42,0.34,1.00], lines:[459.3,455.5],       obs:'Blue-violet', persist:0.18},
+ {k:'rb', n:'Rubidium chloride',   f:'RbCl',       col:[0.88,0.16,0.62], lines:[780.0,420.2],       obs:'Red-violet', persist:0.18},
+ {k:'b',  n:'Boric acid',          f:'H₃BO₃',      col:[0.30,1.00,0.32], lines:[546,518],           obs:'Bright green', persist:0.18},
+ {k:'pb', n:'Lead(II) nitrate',    f:'Pb(NO₃)₂',   col:[0.74,0.86,1.00], lines:[406,368],           obs:'Bluish white', persist:0.18}
+];
+
+/* ------------------------------------------------------------------ */
+/* Test-tube samples                                                   */
+/* ------------------------------------------------------------------ */
+const TUBES = [
+ {k:'water', n:'Water', f:'H₂O', onset:100, bp:100, rate:0.028, fill:0.55,
+  cold:[0.58,0.71,0.86], hot:[0.58,0.71,0.86], vap:[0.90,0.93,0.97], vapAmt:0.9,
+  dH:+41, selfHeat:-360, condense:1.0, smoke:[0.92,0.94,0.97], smokeAmt:1.15, smokeFrom:0.01, bump:true,
+  eq:'H₂O(l) → H₂O(g)   ΔH_vap = +41 kJ/mol at 100 °C',
+  before:'A few cm³ of water. It will climb to 100 °C and then refuse to go any higher.',
+  during:'Boiling hard at 100 °C. Look at the trace: it has gone flat. Every extra joule is buying latent heat of vaporisation, not temperature. Without anti-bumping granules it will also bump — a slug of superheated water flashing to steam all at once.',
+  after:'Boiled dry. With nothing left to absorb the heat the glass is now free to shoot past 100 °C.'},
+ {k:'h2', n:'Hydrogen', f:'H₂', onset:130, rate:1.0, fill:0.0, pop:true,
+  cold:[0.80,0.86,1.00], hot:[0.80,0.86,1.00], dH:-286, selfHeat:0, condense:0.8,
+  eq:'2H₂ + O₂ → 2H₂O   ΔH = −286 kJ/mol H₂',
+  before:'A tube collected full of hydrogen over water. Bring the flame to the mouth and stand back.',
+  during:'Ignition.',
+  after:'A sharp squeaky pop and a mist of water condensing inside the glass. That is the standard school test for hydrogen — and a reminder of how much energy 286 kJ/mol really is.'},
+ {k:'dust', n:'Lycopodium powder', f:'spore dust', onset:205, rate:0.20, fill:0.30, dust:true,
+  cold:[0.86,0.80,0.55], hot:[0.20,0.17,0.14], dH:-2500, selfHeat:700,
+  smoke:[0.34,0.28,0.22], smokeAmt:1.2, smokeFrom:0.03,
+  eq:'fine organic dust + O₂ → CO₂ + H₂O   (deflagration)',
+  before:'Fine spore powder. Sitting in a heap it merely chars — a heap has almost no surface area exposed to oxygen.',
+  during:'It is throwing itself into the air and flashing off in rolling fireballs. Dispersed as a cloud the same powder has an enormous surface area, so it burns in milliseconds instead of minutes. This is precisely how a flour mill or a grain silo explodes.',
+  after:'A scorched empty tube and a great deal of smoke.'},
+ {k:'cuso4', n:'Copper(II) sulfate-5-water', f:'CuSO₄·5H₂O', onset:110, rate:0.115,
+  cold:[0.06,0.26,0.88], hot:[0.90,0.92,0.94], vap:[0.86,0.89,0.96], vapAmt:0.75, fill:0.55,
+  eq:'CuSO₄·5H₂O ⇌ CuSO₄ + 5H₂O',  dH:+78, selfHeat:-190, condense:1.0,
+  before:'Blue crystals.',
+  during:'The crystals crumble and turn pale; water driven off condenses on the cool upper walls.',
+  after:'White anhydrous copper(II) sulfate. Drip the water back on and it turns blue again — and gets hot. Reversible: a chemical test for water.'},
+ {k:'cuco3', n:'Copper(II) carbonate', f:'CuCO₃', onset:290, rate:0.17,
+  cold:[0.09,0.55,0.40], hot:[0.028,0.028,0.032], vap:[0.55,0.55,0.55], vapAmt:0.18, fill:0.5, linger:0.25,
+  eq:'CuCO₃ → CuO + CO₂',  dH:+40, selfHeat:-240,
+  before:'Green powder.',
+  during:'The green darkens from the bottom up; a gas comes off that turns limewater milky.',
+  after:'Black copper(II) oxide. Thermal decomposition.'},
+ {k:'kmno4', n:'Potassium manganate(VII)', f:'KMnO₄', onset:240, rate:0.15,
+  cold:[0.30,0.02,0.42], hot:[0.045,0.085,0.05], vap:[0.62,0.72,0.62], vapAmt:0.14, fill:0.45, linger:0.25,
+  eq:'2KMnO₄ → K₂MnO₄ + MnO₂ + O₂',  dH:-34, selfHeat:+180, smoke:[0.55,0.60,0.55], smokeAmt:0.25,
+  before:'Deep purple crystals.',
+  during:'Crackles and spits; the oxygen given off relights a glowing splint.',
+  after:'Dark green-black residue of potassium manganate(VI) and manganese(IV) oxide.'},
+ {k:'pbno3', n:'Lead(II) nitrate', f:'Pb(NO₃)₂', onset:290, rate:0.13,
+  cold:[0.93,0.94,0.96], hot:[0.96,0.70,0.04], vap:[0.78,0.28,0.05], vapAmt:1.25, fill:0.5, linger:0.85,
+  eq:'2Pb(NO₃)₂ → 2PbO + 4NO₂ + O₂',  dH:+598, selfHeat:-430, smoke:[0.70,0.30,0.07], smokeAmt:0.9,
+  before:'White crystals.',
+  during:'Loud crackling — decrepitation — as dense choking brown nitrogen dioxide fills the tube.',
+  after:'Yellow lead(II) oxide. NO₂ is toxic: fume cupboard only.'},
+ {k:'i2', n:'Iodine', f:'I₂', onset:75, rate:0.30, sublime:true,
+  cold:[0.13,0.12,0.15], hot:[0.13,0.12,0.15], vap:[0.58,0.09,0.80], vapAmt:1.5, fill:0.35,
+  eq:'I₂(s) ⇌ I₂(g)',  dH:+62, selfHeat:-320, condense:0.85, condCol:[0.42,0.22,0.48],
+  before:'Shiny grey-black crystals.',
+  during:'Dense violet vapour fills the tube — solid straight to gas, with no liquid at all.',
+  after:'Sublimation. Cool the tube and shiny crystals re-form on the upper walls.'},
+ {k:'s8', n:'Sulfur', f:'S₈', onset:115, rate:0.11,
+  cold:[0.96,0.86,0.09], hot:[0.42,0.05,0.02], vap:[0.55,0.50,0.34], vapAmt:0.35, fill:0.5,
+  eq:'S₈(s) → S₈(l) → Sₓ(l)  ·  S + O₂ → SO₂',  dH:-297, selfHeat:+260, smoke:[0.92,0.93,0.90], smokeAmt:0.55, smokeFrom:0.55,
+  before:'Yellow powder.',
+  during:'Melts to a runny amber liquid, then darkens and thickens to a red-brown that barely pours.',
+  after:'Dark red-brown polymeric sulfur. If it catches light it burns with a blue flame and a choking smell of sulfur dioxide.'},
+ {k:'zno', n:'Zinc oxide', f:'ZnO', onset:250, rate:0.5, reversible:true,
+  cold:[0.95,0.95,0.93], hot:[0.98,0.78,0.08], vap:[0.6,0.6,0.6], vapAmt:0.0, fill:0.5,
+  eq:'ZnO — thermochromism, not a reaction',  dH:0, selfHeat:0,
+  before:'White powder.',
+  during:'Turns lemon yellow as it heats — oxygen vacancies in the lattice absorb blue light.',
+  after:'Take it out of the flame and it goes white again. A reversible physical change.'},
+ {k:'nh4cl', n:'Ammonium chloride', f:'NH₄Cl', onset:200, rate:0.24, sublime:true,
+  cold:[0.94,0.95,0.96], hot:[0.94,0.95,0.96], vap:[0.92,0.94,0.97], vapAmt:1.2, fill:0.45, linger:0.45,
+  eq:'NH₄Cl(s) ⇌ NH₃(g) + HCl(g)',  dH:+176, selfHeat:-330, condense:1.0, smoke:[0.93,0.95,0.98], smokeAmt:0.7,
+  before:'White crystals.',
+  during:'Dense white fumes; the solid seems to vanish from the bottom of the tube.',
+  after:'The gases recombine on the cool upper walls as a white ring — apparent sublimation.'},
+ {k:'sugar', n:'Sucrose', f:'C₁₂H₂₂O₁₁', onset:186, rate:0.095,
+  cold:[0.95,0.93,0.88], hot:[0.045,0.035,0.030], vap:[0.86,0.86,0.86], vapAmt:0.55, fill:0.55,
+  eq:'C₁₂H₂₂O₁₁ → 12C + 11H₂O',  dH:+560, selfHeat:-210, condense:0.9, smoke:[0.42,0.33,0.26], smokeAmt:0.85, smokeFrom:0.35,
+  before:'White crystals.',
+  during:'Melts, browns, froths up the tube and smells of caramel; steam condenses above.',
+  after:'A black porous plug of carbon. Dehydration by heat.'}
+];
+/* ------------------------------------------------------------------ */
+/* Metals held in tongs — the incandescence ramp made visible          */
+/* ------------------------------------------------------------------ */
+const METALS = [
+ {k:'fe', n:'Iron nail', f:'Fe', onset:820, rate:0.045, fill:0.16, dH:-1118, selfHeat:35,
+  cold:[0.365,0.370,0.385], hot:[0.075,0.080,0.095],
+  eq:'3Fe + 2O₂ → Fe₃O₄  (surface scale)', tPeak:1480, mp:1538, sagMax:0.75, dripRate:0.0,
+  before:'A clean iron nail. Iron first glows a barely visible dull red at about 525 °C — the Draper point.',
+  during:'Dull red → cherry red → orange as it climbs. A dark scale is creeping over the surface.',
+  after:'Coated in blue-black magnetite. Quench it and the scale flakes off.'},
+ {k:'cu', n:'Copper foil', f:'Cu', onset:300, rate:0.10, fill:0.13, dH:-157, selfHeat:55,
+  cold:[0.74,0.36,0.15], hot:[0.045,0.042,0.042], smoke:[0.30,0.30,0.32], smokeAmt:0.12, tPeak:1180,
+  mp:1085, latent:90, dripRate:0.45, sagMax:0.85,
+  eq:'2Cu + O₂ → 2CuO',
+  before:'Bright salmon-pink copper foil.',
+  during:'Tarnishing through straw and violet to a matt black as copper(II) oxide grows.',
+  after:'Black copper(II) oxide. Hold it in the reducing part of the flame and it turns pink again.'},
+ {k:'mg', n:'Magnesium ribbon', f:'Mg', onset:475, rate:0.20, fill:0.10, dH:-602, selfHeat:3000,
+  burn:true, tPeak:2350, cold:[0.78,0.79,0.80], hot:[0.97,0.97,0.98],
+  smoke:[1.0,1.0,1.0], smokeAmt:1.6, sparks:0.25,
+  eq:'2Mg + O₂ → 2MgO   ΔH = −602 kJ/mol',
+  before:'Clean magnesium ribbon. It ignites at about 475 °C.',
+  during:'Burning fiercely at well over 2000 °C with a blinding white light and clouds of white magnesium oxide smoke. Never look straight at it.',
+  after:'A crumbly white ash of magnesium oxide, heavier than the ribbon you started with.'},
+ {k:'few', n:'Steel wool', f:'Fe (fine)', onset:620, rate:0.10, fill:0.70, dH:-412, selfHeat:1500,
+  cold:[0.30,0.30,0.33], hot:[0.16,0.10,0.065], sparks:1.0, tPeak:1580,
+  smoke:[0.32,0.30,0.30], smokeAmt:0.7,
+  eq:'3Fe + 2O₂ → Fe₃O₄   ΔH = −1118 kJ/mol',
+  before:'A tuft of fine steel wool. The same iron, but a huge surface area.',
+  during:'Glowing orange and throwing off a shower of sparks as it burns — the reaction runs away on its own heat.',
+  after:'Brittle black iron oxide. It weighs more than the steel wool did: the oxygen has joined on.'},
+ {k:'pb', n:'Lead', f:'Pb', onset:99999, rate:0, fill:0.15, dH:0, selfHeat:0,
+  mp:327, latent:34, dripRate:1.35, sagMax:1.0,
+  cold:[0.545,0.555,0.600], hot:[0.545,0.555,0.600],
+  eq:'Pb(s) → Pb(l)   melting point 327 °C · ΔH_fus = 4.8 kJ/mol',
+  before:'A strip of lead. It melts at only 327 °C, so even a yellow flame will do it. (Lead is cumulatively toxic — gloves, and never in a food vessel.)',
+  during:'It has gone soft, drooped, and is now running off the end in bright droplets.',
+  after:'The whole strip has dripped away and frozen into a dull grey bead below.'},
+ {k:'al', n:'Aluminium foil', f:'Al', onset:99999, rate:0, fill:0.14, dH:0, selfHeat:0,
+  mp:660, latent:72, dripRate:0.10, sagMax:1.15,
+  cold:[0.715,0.725,0.755], hot:[0.700,0.710,0.740],
+  eq:'Al(s) → Al(l)   melting point 660 °C · Al₂O₃ melts at 2072 °C',
+  before:'Aluminium foil. Watch what the oxide skin does — this is the classic surprise.',
+  during:'The aluminium inside melted at 660 °C, but the Al₂O₃ skin has a melting point of 2072 °C and is holding it. It sags like a water balloon instead of dripping.',
+  after:'A limp, wrinkled envelope of oxide with the metal pooled inside it.'},
+ {k:'ag', n:'Silver', f:'Ag', onset:99999, rate:0, fill:0.14, dH:0, selfHeat:0,
+  mp:962, latent:88, dripRate:0.95, sagMax:0.95,
+  cold:[0.955,0.950,0.930], hot:[0.955,0.950,0.930],
+  eq:'Ag(s) → Ag(l)   melting point 962 °C · ΔH_fus = 11.3 kJ/mol',
+  before:'A strip of silver. It needs a blue flame — 962 °C.',
+  during:'Molten. Surface tension is pulling it into a bright mirror-bright bead before it falls.',
+  after:'A frozen silver bead. Silver picks up oxygen while molten and spits it out on freezing.'},
+ {k:'au', n:'Gold', f:'Au', onset:99999, rate:0, fill:0.14, dH:0, selfHeat:0,
+  mp:1064, latent:96, dripRate:0.80, sagMax:0.9,
+  cold:[1.000,0.766,0.336], hot:[1.000,0.700,0.240],
+  eq:'Au(s) → Au(l)   melting point 1064 °C · ΔH_fus = 12.6 kJ/mol',
+  before:'Gold leaf folded into a strip. Needs the roaring blue flame at full aeration.',
+  during:'Molten gold, balling up. It stays yellow in reflection even while glowing orange from its own heat — and it does not tarnish at all.',
+  after:'A perfect gold bead, as bright as when it started. Gold does not oxidise at any temperature.'},
+ {k:'ti', n:'Titanium', f:'Ti', onset:420, rate:0.055, fill:0.13, dH:-944, selfHeat:40,
+  mp:1668, latent:140, dripRate:0.0, sagMax:0.55, tPeak:1500,
+  cold:[0.720,0.730,0.750], hot:[0.300,0.620,0.700],
+  tint:[[0.00,[0.720,0.730,0.750]],[0.22,[0.860,0.720,0.330]],[0.45,[0.640,0.330,0.760]],
+        [0.70,[0.200,0.430,0.900]],[1.00,[0.300,0.620,0.700]]],
+  eq:'Ti + O₂ → TiO₂   (melting point 1668 °C — out of reach here)',
+  before:'A titanium strip. Its melting point is 1668 °C; the hottest a Bunsen can manage is about 1560 °C, so this one will not melt.',
+  during:'White hot and softening, but not melting. The surface is running through interference colours — straw, purple, blue — as the oxide film thickens.',
+  after:'Still solid, now anodised through to a peacock blue by its own oxide layer.'},
+ {k:'hg', n:'Mercury', f:'Hg', onset:99999, rate:0.055, fill:0.30, dH:+59, selfHeat:-240,
+  mp:-39, bp:357, liquid:true, latent:20,
+  cold:[0.795,0.800,0.825], hot:[0.795,0.800,0.825],
+  smoke:[0.72,0.74,0.78], smokeAmt:0.85, smokeFrom:0.02,
+  eq:'Hg(l) → Hg(g)   boiling point 357 °C · ΔH_vap = +59 kJ/mol',
+  before:'Mercury in a crucible — liquid at room temperature, the only metal that is. In reality this is done in a sealed fume hood: the vapour is a serious cumulative poison.',
+  during:'Boiling at 357 °C. The temperature has stopped climbing — every extra joule is going into latent heat of vaporisation. The vapour coming off is invisible, odourless and very toxic.',
+  after:'Boiled away to nothing. In a real lab that mercury is now in the air, which is exactly why nobody does this outside a hood.'},
+ {k:'pt', n:'Platinum wire', f:'Pt', onset:9999, rate:0, fill:0.05, dH:0, selfHeat:0, mp:1768,
+  cold:[0.80,0.80,0.83], hot:[0.80,0.80,0.83],
+  eq:'Pt — chemically inert, melts at 1768 °C',
+  before:'Platinum wire, the reference material for flame tests.',
+  during:'Glowing brilliantly but completely unchanged — no oxide, no scale.',
+  after:'Exactly as it started. That is why it is used for flame tests.'}
+];
+/* ------------------------------------------------------------------ */
+/* Evaporating basin — sulfates and other minerals dissolved in water   */
+/* ------------------------------------------------------------------ */
+const SOLUTIONS = [
+ {k:'cuso4aq', n:'Copper(II) sulfate', f:'CuSO₄(aq)', rate:0.032, satAt:0.44, bp:100, bpRise:6,
+  dehyd:150, dehydRate:0.09, dH:+41, selfHeat:-330,
+  sol:[0.13,0.47,0.86], cry:[0.09,0.36,0.95], dry:[0.93,0.945,0.955],
+  smoke:[0.92,0.94,0.97], smokeAmt:1.0, smokeFrom:0.01,
+  eq:'CuSO₄(aq) → CuSO₄·5H₂O(s) → CuSO₄(s) + 5H₂O(g)',
+  before:'A blue copper(II) sulfate solution in the basin. Heat it gently — a basin is used rather than a tube so the water has a big surface to escape from.',
+  during:'Boiling steadily at about 100 °C. The blue is deepening as water leaves and the solution concentrates.',
+  crystal:'Past saturation. A crust of blue triclinic crystals is growing in from the rim, following the liquid as it retreats.',
+  after:'A bed of deep blue CuSO₄·5H₂O crystals. Stop here if you want the crystals — the blue IS the water of crystallisation.',
+  dryTxt:'Driven past 150 °C the crystals have given up their water and collapsed to white anhydrous CuSO₄. Put one drop of water on it and it flashes blue again, and gets hot — the standard test for water.'},
+ {k:'coso4aq', n:'Cobalt(II) chloride', f:'CoCl₂(aq)', rate:0.032, satAt:0.42, bp:100, bpRise:5,
+  dehyd:110, dehydRate:0.14, dH:+41, selfHeat:-330,
+  sol:[0.90,0.35,0.48], cry:[0.92,0.22,0.38], dry:[0.20,0.38,0.95],
+  smoke:[0.92,0.94,0.97], smokeAmt:1.0, smokeFrom:0.01,
+  eq:'CoCl₂·6H₂O(s) ⇌ CoCl₂(s) + 6H₂O(g)',
+  before:'A pink cobalt(II) chloride solution. This one is a reversible indicator, so watch the colour rather than the crystals.',
+  during:'Boiling. The pink is deepening towards red as the solution concentrates.',
+  crystal:'Red-pink hydrated crystals are forming around the rim.',
+  after:'Rose-red CoCl₂·6H₂O. Keep heating and something obvious happens.',
+  dryTxt:'Blue. At about 110 °C the six water molecules leave and the octahedral pink hydrate becomes the tetrahedral blue anhydrous salt. Breathe on it and it goes pink again — this is the humidity indicator in silica gel.'},
+ {k:'feso4aq', n:'Iron(II) sulfate', f:'FeSO₄(aq)', rate:0.030, satAt:0.44, bp:100, bpRise:6,
+  dehyd:300, dehydRate:0.05, dH:+41, selfHeat:-330,
+  sol:[0.42,0.72,0.60], cry:[0.36,0.80,0.55], dry:[0.62,0.32,0.11],
+  smoke:[0.92,0.94,0.97], smokeAmt:1.0, smokeFrom:0.01,
+  eq:'FeSO₄·7H₂O → FeSO₄ → Fe₂O₃ + SO₂ + SO₃',
+  before:'Pale blue-green iron(II) sulfate solution — green vitriol, one of the oldest known sulfates.',
+  during:'Boiling down. The green is intensifying.',
+  crystal:'Pale green monoclinic crystals of FeSO₄·7H₂O forming at the rim.',
+  after:'Green vitriol crystals. Gentle heating from here just turns them white as the water goes.',
+  dryTxt:'Pushed above 300 °C it has gone the whole way: red-brown iron(III) oxide, with sulfur dioxide and trioxide driven off. Distilling this is how oil of vitriol — sulfuric acid — was originally made.'},
+ {k:'naclaq', n:'Brine', f:'NaCl(aq)', rate:0.034, satAt:0.40, bp:100, bpRise:8,
+  dehyd:801, dehydRate:0.05, dH:+41, selfHeat:-330,
+  sol:[0.72,0.80,0.88], cry:[0.94,0.95,0.96], dry:[0.96,0.97,0.98],
+  smoke:[0.92,0.94,0.97], smokeAmt:1.05, smokeFrom:0.01,
+  eq:'NaCl(aq) → NaCl(s) + H₂O(g)',
+  before:'Saturated brine. Sea water, essentially — this is how salt pans work, just faster.',
+  during:'Boiling. Note the boiling point: salt water boils above 100 °C, and climbs further as it concentrates.',
+  crystal:'White cubic crystals growing in from the rim. Sodium chloride crystallises as neat cubes because of its cubic lattice.',
+  after:'A pan of dry salt cubes. No water of crystallisation to lose — the crystals are anhydrous already.',
+  dryTxt:'Nothing further happens; NaCl does not melt until 801 °C. Keep going and it will crackle as trapped brine pockets burst — decrepitation.'},
+ {k:'alum', n:'Potash alum', f:'KAl(SO₄)₂(aq)', rate:0.030, satAt:0.46, bp:100, bpRise:4,
+  dehyd:92, dehydRate:0.10, dH:+41, selfHeat:-330,
+  sol:[0.80,0.85,0.90], cry:[0.90,0.93,0.96], dry:[0.97,0.97,0.95],
+  smoke:[0.92,0.94,0.97], smokeAmt:1.0, smokeFrom:0.01,
+  eq:'KAl(SO₄)₂·12H₂O → KAl(SO₄)₂ + 12H₂O',
+  before:'Alum solution. Left to cool slowly this grows the big clear octahedra people put on windowsills.',
+  during:'Boiling down. Alum is very soluble hot and much less so cold, which is why it crystallises so willingly.',
+  crystal:'Clear octahedral crystals building up around the rim.',
+  after:'Colourless alum crystals — twelve water molecules per formula unit, more than any other common salt.',
+  dryTxt:'It has melted in its own water of crystallisation at 92 °C, then frothed up and dried to the light white puff old texts call burnt alum.'},
+ {k:'mgso4aq', n:'Epsom salts', f:'MgSO₄(aq)', rate:0.032, satAt:0.44, bp:100, bpRise:6,
+  dehyd:150, dehydRate:0.09, dH:+41, selfHeat:-330,
+  sol:[0.80,0.84,0.88], cry:[0.93,0.95,0.96], dry:[0.97,0.97,0.97],
+  smoke:[0.92,0.94,0.97], smokeAmt:1.0, smokeFrom:0.01,
+  eq:'MgSO₄·7H₂O → MgSO₄ + 7H₂O',
+  before:'Magnesium sulfate solution — Epsom salts, named after the spring water it was first boiled out of.',
+  during:'Boiling down.',
+  crystal:'Fine white needles growing from the rim inward.',
+  after:'A mat of white needle crystals, MgSO₄·7H₂O.',
+  dryTxt:'Dried to anhydrous magnesium sulfate — the white powder used as a laboratory drying agent precisely because it grabs those seven waters back.'}
+];
+
+function sampleDef(){
+  if(!S.sample) return null;
+  const list = S.rig === 1 ? SALTS : S.rig === 3 ? METALS : S.rig === 4 ? SOLUTIONS : TUBES;
+  return list.find(x => x.k === S.sample) || null;
+}
+
+/* dist/target.y are auto-framed from the flame height; `zoom` is the user's
+   multiplier on top of that, so the flame never runs off the top of frame. */
+const CAM = { az: 0.60, el: 0.10, dist: 42.0, target: [0.30, 12.8, 0], focal: 2.55, shift: 0, zoom: 1.0 };
+const DEF_CAM = JSON.parse(JSON.stringify(CAM));
+
+function autoFrame(dt){
+  if(CAM.noAuto) return;
+  const lit = S.litE > 0.05;
+  let topY = Math.max(15.5, lit ? flameBaseY() + flameHeight()*1.16 + 1.2 : 15.5);
+  if(S.rig && sampleDef()){
+    const rp = rigGeom().pos;
+    topY = Math.max(topY, rp[1] + (S.rig===2 ? 9.0 : 2.4));
+  }
+  const botY = -1.8;
+  const cy   = (topY + botY) * 0.5;
+  const half = (topY - botY) * 0.5 * 1.07;
+  const wantDist = half * CAM.focal;
+  const k = Math.min(1, dt * 1.8);
+  CAM.target[1] += (cy - CAM.target[1]) * k;
+  CAM._auto = CAM._auto === undefined ? wantDist : CAM._auto + (wantDist - CAM._auto) * k;
+  CAM.dist = CAM._auto * CAM.zoom;
+}
+
+/* ------------------------------------------------------------------ */
+/* Fuels                                                               */
+/*  air  = stoichiometric volumes of air per volume of fuel            */
+/*  cv   = gross calorific value, MJ/m³                                */
+/*  tMax = hottest point of a fully aerated flame, °C                  */
+/*  sL   = laminar burning velocity, m/s (sets strike-back / lift-off) */
+/* ------------------------------------------------------------------ */
+const FUELS = {
+  methane:{ name:'Natural gas', formula:'CH₄',  air: 9.55, cv: 37.0, tMax:1560, soot:1.00, sL:0.37,
+            eq:'CH₄ + 2O₂ → CO₂ + 2H₂O',
+            note:'Mains laboratory gas. Needs the least air, so the collar reaches a clean blue flame easily.' },
+  propane:{ name:'Propane',     formula:'C₃H₈', air:23.90, cv: 93.0, tMax:1690, soot:1.35, sL:0.43,
+            eq:'C₃H₈ + 5O₂ → 3CO₂ + 4H₂O',
+            note:'Cylinder LPG. Needs 2.5× the air of methane, so the same collar setting runs much richer — open it further or turn the gas down.' },
+  butane: { name:'Butane',      formula:'C₄H₁₀',air:31.00, cv:121.5, tMax:1670, soot:1.52, sL:0.42,
+            eq:'2C₄H₁₀ + 13O₂ → 8CO₂ + 10H₂O',
+            note:'Highest energy per volume — big flames — but the greediest for air and the most prone to sooting.' },
+  lpg:    { name:'LPG 60/40',   formula:'C₃H₈/C₄H₁₀', air:26.75, cv:104.4, tMax:1680, soot:1.42, sL:0.43,
+            eq:'mixed propane–butane combustion',
+            note:'Typical bottled camping-gas blend: propane for vapour pressure, butane for energy density.' }
+};
+function fuel(){ return FUELS[S.fuel] || FUELS.methane; }
+function airDemand(){ return Math.pow(fuel().air/9.55, 0.45); }
+
+/* ---- derived physics ---- */
+function aeration(){
+  // Effective primary aeration: the collar admits air by the Venturi effect,
+  // but a larger gas throughput at the same slot opening leans the mixture out,
+  // and heavier hydrocarbons need far more air per volume of fuel.
+  return clamp01(S.air / (airDemand() * (0.62 + 0.70 * S.gas)));
+}
+function flameHeight(){
+  const a = aeration();
+  return (5.2 + 14.5*S.gas) * Math.pow(fuel().cv/37.0, 0.31) * (0.92 + 0.22*a);
+}
+function tempHot(){       // tip of inner cone, °C
+  const a = aeration(), T = fuel().tMax;
+  return T*0.62 + T*0.38*smoothstep(0,1,a) - 90*S.gas*(1-a);
+}
+function tempCool(){      // body of the inner cone, °C
+  const a = aeration();
+  return 300 + 230*a;
+}
+function sootFracJS(){ return 1 - smoothstep(0.045, 0.92, aerationVisual()); }
+function aerationVisual(){ return clamp01(aeration() / Math.pow(fuel().soot, 0.22)); }
+function clamp01(x){ return Math.min(1, Math.max(0, x)); }
+function smoothstep(e0,e1,x){ const t = clamp01((x-e0)/(e1-e0)); return t*t*(3-2*t); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+
+function flameName(){
+  if(!S.lit) return S.gas > 0.02 ? 'Unlit — gas flowing' : 'Gas off';
+  if(S.flashback) return 'STRIKE-BACK — burning at the jet';
+  const a = aeration();
+  if(a < 0.10) return 'Luminous “safety” flame';
+  if(a < 0.42) return 'Slightly aerated flame';
+  if(a < 0.78) return 'Half-aerated blue flame';
+  return 'Roaring premixed blue flame';
+}
+function keyColorCSS(){
+  const s = sootFracJS();
+  const a = aeration();
+  // rough mirror of flameKeyColor()
+  const chem = a > 0.55 ? [0.30,0.75,1.0] : [0.55,0.40,1.0];
+  const hot  = [1.0, 0.62, 0.22];
+  const s2 = s*s;
+  const c = [lerp(chem[0],hot[0],s2), lerp(chem[1],hot[1],s2), lerp(chem[2],hot[2],s2)];
+  const m = Math.max(c[0],c[1],c[2]) || 1;
+  return `rgb(${Math.round(255*c[0]/m)},${Math.round(255*c[1]/m)},${Math.round(255*c[2]/m)})`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Camera helpers (mirrored exactly in the shader)                     */
+/* ------------------------------------------------------------------ */
+function vsub(a,b){return [a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+function vadd(a,b){return [a[0]+b[0],a[1]+b[1],a[2]+b[2]];}
+function vmul(a,s){return [a[0]*s,a[1]*s,a[2]*s];}
+function vdot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+function vcross(a,b){return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];}
+function vnorm(a){const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];}
+
+function camState(){
+  const ce = Math.cos(CAM.el), se = Math.sin(CAM.el);
+  const pos = [
+    CAM.target[0] + CAM.dist*ce*Math.sin(CAM.az),
+    CAM.target[1] + CAM.dist*se,
+    CAM.target[2] + CAM.dist*ce*Math.cos(CAM.az)
+  ];
+  const fw = vnorm(vsub(CAM.target, pos));
+  const rt_ = vnorm(vcross(fw, [0,1,0]));
+  const up = vcross(rt_, fw);
+  return {pos, fw, rt:rt_, up, mat:new Float32Array([
+    rt_[0],rt_[1],rt_[2],
+    up[0], up[1], up[2],
+    -fw[0],-fw[1],-fw[2]
+  ])};
+}
+function rayFromPixel(px, py){
+  const c = camState();
+  const aspect = canvas.width/canvas.height;
+  const ndcX = (px/canvas.clientWidth)*2-1 + CAM.shift;
+  const ndcY = 1-(py/canvas.clientHeight)*2;
+  const d = vnorm(vadd(vadd(vmul(c.rt, ndcX*aspect), vmul(c.up, ndcY)), vmul(c.fw, CAM.focal)));
+  return {o:c.pos, d};
+}
+function project(w){
+  const c = camState();
+  const v = vsub(w, c.pos);
+  const cz = vdot(v, c.fw);
+  if(cz <= 0.05) return null;
+  const aspect = canvas.width/canvas.height;
+  const ndcX = (vdot(v,c.rt)/cz)*CAM.focal/aspect - CAM.shift;
+  const ndcY = (vdot(v,c.up)/cz)*CAM.focal;
+  return [(ndcX*0.5+0.5)*canvas.clientWidth, (1-(ndcY*0.5+0.5))*canvas.clientHeight, cz];
+}
+/* ray vs vertical cylinder (for picking the collar) */
+function hitCylinder(ray, r, y0, y1){
+  const o=ray.o, d=ray.d;
+  const a = d[0]*d[0]+d[2]*d[2];
+  const b = o[0]*d[0]+o[2]*d[2];
+  const c = o[0]*o[0]+o[2]*o[2]-r*r;
+  if(a < 1e-9) return -1;
+  const disc = b*b-a*c;
+  if(disc < 0) return -1;
+  const sq = Math.sqrt(disc);
+  for(const t of [(-b-sq)/a, (-b+sq)/a]){
+    if(t > 0.05){
+      const y = o[1]+d[1]*t;
+      if(y>=y0 && y<=y1) return t;
+    }
+  }
+  return -1;
+}
+function hitSphere(ray, ctr, r){
+  const oc = vsub(ray.o, ctr);
+  const b = vdot(oc, ray.d);
+  const c = vdot(oc,oc)-r*r;
+  const disc = b*b-c;
+  if(disc < 0) return -1;
+  const t = -b-Math.sqrt(disc);
+  return t > 0.05 ? t : -1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Audio — filtered noise roar + ignition pop                          */
+/* ------------------------------------------------------------------ */
+const Audio_ = {
+  ctx:null, src:null, bp:null, lp:null, gain:null, hiss:null, hissGain:null, ready:false,
+  init(){
+    if(this.ready) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    this.ctx = new AC();
+    const len = this.ctx.sampleRate*3;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const ch = buf.getChannelData(0);
+    let last = 0;
+    for(let i=0;i<len;i++){ const w=Math.random()*2-1; last = (last + 0.024*w)/1.024; ch[i] = last*3.2; }
+    this.src = this.ctx.createBufferSource(); this.src.buffer = buf; this.src.loop = true;
+    this.bp = this.ctx.createBiquadFilter(); this.bp.type='bandpass'; this.bp.frequency.value=420; this.bp.Q.value=0.7;
+    this.lp = this.ctx.createBiquadFilter(); this.lp.type='lowpass'; this.lp.frequency.value=2600;
+    this.gain = this.ctx.createGain(); this.gain.gain.value = 0;
+    this.src.connect(this.bp); this.bp.connect(this.lp); this.lp.connect(this.gain); this.gain.connect(this.ctx.destination);
+    this.src.start();
+
+    // gas hiss (unlit)
+    this.hiss = this.ctx.createBufferSource(); this.hiss.buffer = buf; this.hiss.loop = true;
+    const hp = this.ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=2200;
+    this.hissGain = this.ctx.createGain(); this.hissGain.gain.value = 0;
+    this.hiss.connect(hp); hp.connect(this.hissGain); this.hissGain.connect(this.ctx.destination);
+    this.hiss.start();
+    this.ready = true;
+  },
+  update(){
+    if(!this.ready) return;
+    const on = S.sound ? 1 : 0;
+    const a = aeration();
+    const roar = on * (S.litE) * (0.030 + 0.30*a*a) * (0.25 + 0.85*S.gas);
+    const hiss = on * (1-S.litE) * S.gas * 0.030;
+    const now = this.ctx.currentTime;
+    this.gain.gain.setTargetAtTime(roar, now, 0.12);
+    this.hissGain.gain.setTargetAtTime(hiss, now, 0.12);
+    this.bp.frequency.setTargetAtTime(260 + 900*a + 260*S.gas, now, 0.2);
+    this.bp.Q.setTargetAtTime(0.5 + 1.6*a, now, 0.2);
+    this.lp.frequency.setTargetAtTime(1200 + 5200*a, now, 0.2);
+  },
+  bang(power){
+    if(!this.ready || !S.sound) return;
+    const t0 = this.ctx.currentTime, P = Math.min(1.2, power);
+    const len = Math.floor(this.ctx.sampleRate*0.6);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const ch = buf.getChannelData(0);
+    for(let i=0;i<len;i++) ch[i] = (Math.random()*2-1)*Math.pow(1-i/len, 2.4);
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const lp = this.ctx.createBiquadFilter(); lp.type='lowpass';
+    lp.frequency.setValueAtTime(4200, t0);
+    lp.frequency.exponentialRampToValueAtTime(240, t0+0.35);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.42*P, t0);
+    g.gain.exponentialRampToValueAtTime(0.0008, t0+0.55);
+    src.connect(lp); lp.connect(g); g.connect(this.ctx.destination);
+    src.start(t0); src.stop(t0+0.6);
+    const o = this.ctx.createOscillator(), og = this.ctx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(120*(1.6-P*0.5), t0);
+    o.frequency.exponentialRampToValueAtTime(34, t0+0.3);
+    og.gain.setValueAtTime(0.30*P, t0);
+    og.gain.exponentialRampToValueAtTime(0.0006, t0+0.42);
+    o.connect(og); og.connect(this.ctx.destination); o.start(t0); o.stop(t0+0.45);
+  },
+  pop(){
+    if(!this.ready || !S.sound) return;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(180, this.ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(55, this.ctx.currentTime+0.16);
+    g.gain.setValueAtTime(0.16, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime+0.22);
+    o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime+0.24);
+  },
+  resume(){ if(this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
+};
+
+/* ------------------------------------------------------------------ */
+/* UI                                                                  */
+/* ------------------------------------------------------------------ */
+const $ = id => document.getElementById(id);
+const el = {
+  air:$('air'), gas:$('gas'), airTxt:$('airTxt'), gasTxt:$('gasTxt'),
+  flameName:$('flameName'), swatch:$('swatch'), aerBar:$('aerBar'), aerVal:$('aerVal'),
+  tHot:$('tHot'), tCool:$('tCool'), comb:$('comb'), soot:$('soot'), fh:$('fh'),
+  alert:$('alert'), fps:$('fps'), hint:$('hint'), labels:$('labels'), lsvg:$('lsvg'),
+  panel:$('panel'), panelTab:$('panelTab'), exposure:$('exposure'), expTxt:$('expTxt'),
+  quality:$('quality'), qTxt:$('qTxt'),
+  fuelRow:$('fuelRow'), fuelNote:$('fuelNote'), sampleWrap:$('sampleWrap'), sampleChips:$('sampleChips'),
+  btnIn:$('btnIn'), btnClean:$('btnClean'), sampleNote:$('sampleNote'),
+  chem:$('chem'), chemSwatch:$('chemSwatch'), chemName:$('chemName'), chemF:$('chemF'), chemT:$('chemT'),
+  specWrap:$('specWrap'), spec:$('spec'), chemObs:$('chemObs'), chemEq:$('chemEq'),
+  glowRow:$('glowRow'), chemGlow:$('chemGlow'), dhRow:$('dhRow'), chemDH:$('chemDH'),
+  phaseRow:$('phaseRow'), chemPhase:$('chemPhase'), mpRow:$('mpRow'), mpLbl:$('mpLbl'), chemMP:$('chemMP'),
+  concRow:$('concRow'), chemConc:$('chemConc'),
+  tgraph:$('tgraph'), tline:$('tline'), tonsetL:$('tonsetL'), tglab:$('tglab'),
+  fileIn:$('fileIn'), scenarios:$('scenarios')
+};
+
+/* ---------------- fuel / apparatus / samples ---------------- */
+function rgbCSS(c){ return `rgb(${Math.round(255*clamp01(c[0]))},${Math.round(255*clamp01(c[1]))},${Math.round(255*clamp01(c[2]))})`; }
+
+function buildFuels(){
+  el.fuelRow.innerHTML = '';
+  Object.keys(FUELS).forEach(k=>{
+    const f = FUELS[k];
+    const b = document.createElement('button');
+    b.className = 'preset' + (S.fuel===k ? ' on' : '');
+    b.innerHTML = `<span class="n" style="font-size:11px">${f.formula}</span><span class="t">${f.name.toUpperCase()}</span>`;
+    b.onclick = ()=>{ S.fuel = k; buildFuels(); };
+    el.fuelRow.appendChild(b);
+  });
+  const f = FUELS[S.fuel];
+  el.fuelNote.innerHTML = f.note +
+    ' <span style="color:#8fd7ff">' + f.eq + '</span> &middot; needs ' + f.air.toFixed(1) +
+    ' volumes of air per volume of gas &middot; ' + f.cv.toFixed(0) + ' MJ/m³.';
+}
+
+function setRig(r){
+  S.rig = r; S.sample = null; S.inFlame = false;
+  S.progress = 0; S.burn = 0; S.burning = false; S.burnt = false; S.sampleTemp = 20;
+  ['rig0','rig1','rig2','rig3','rig4'].forEach((id,i)=> $(id).classList.toggle('on', i===r));
+  S.tempHist = []; S.glassT = 293;
+  el.sampleWrap.style.display = r ? '' : 'none';
+  el.sampleNote.textContent = r===1
+    ? 'Moisten the nichrome loop, dip it in the salt and hold it in the hottest part of the flame. Sodium contaminates the wire badly — clean it between tests.'
+    : r===2 ? 'Clamp the tube in the wooden holder and heat the bottom gently in the flame. Point the mouth away from people.'
+    : r===3 ? 'Grip the specimen in the tongs and hold it in the hottest part of the flame. Watch the colour climb: dull red near 525 °C, cherry at 900, orange at 1050, yellow past 1300.'
+    : r===4 ? 'A glazed evaporating basin. Boil the solution down gently — the wide surface lets the water go while the dissolved mineral stays behind and crystallises from the rim inward.'
+    : '';
+  buildSamples();
+}
+function buildSamples(){
+  el.sampleChips.innerHTML = '';
+  if(!S.rig) return;
+  (S.rig===1 ? SALTS : S.rig===3 ? METALS : S.rig===4 ? SOLUTIONS : TUBES).forEach(d=>{
+    const b = document.createElement('button');
+    if(S.sample===d.k) b.className = 'on';
+    b.innerHTML = d.n + '<i>' + d.f + '</i>';
+    b.onclick = ()=> selectSample(d.k);
+    el.sampleChips.appendChild(b);
+  });
+}
+function selectSample(k){
+  const prev = sampleDef();
+  if(S.rig===1 && prev && prev.persist > 0.5 && S.rigT > 0.4){
+    S.contam = 1; S.contamCol = prev.col.slice();
+  }
+  S.sample = k; S.progress = 0; S.burn = 0; S.burning = false; S.burnt = false; S.sampleTemp = 20; S.tempHist = []; resetPhase();
+  buildSamples();
+}
+/* same Planckian locus as the shader, for the UI swatch */
+function planckRGB(T){
+  T = Math.max(1000, Math.min(25000, T));
+  const x = T <= 4000
+    ? (-0.2661239e9/(T*T*T) - 0.2343589e6/(T*T) + 0.8776956e3/T + 0.179910)
+    : (-3.0258469e9/(T*T*T) + 2.1070379e6/(T*T) + 0.2226347e3/T + 0.240390);
+  let y;
+  if(T <= 2222)      y = -1.1063814*x*x*x - 1.34811020*x*x + 2.18555832*x - 0.20219683;
+  else if(T <= 4000) y = -0.9549476*x*x*x - 1.37418593*x*x + 2.09137015*x - 0.16748867;
+  else               y =  3.0817580*x*x*x - 5.87338670*x*x + 3.75112997*x - 0.37001483;
+  const X = x/y, Y = 1, Z = (1-x-y)/y;
+  let c = [ 3.2406*X - 1.5372*Y - 0.4986*Z,
+           -0.9689*X + 1.8758*Y + 0.0415*Z,
+            0.0557*X - 0.2040*Y + 1.0570*Z].map(v=>Math.max(0,v));
+  // mimic the renderer: intensity pushes the highlights toward white
+  const p = Math.pow(Math.max(T-555,0)/1000, 3.55)*8.0;
+  const m = Math.max(1e-4, c[0], c[1], c[2]);
+  c = c.map(v => v/m*p);
+  const aces = v => { const a=2.51,b=0.03,cc=2.43,dd=0.59,e=0.14; return Math.min(1,Math.max(0,(v*(a*v+b))/(v*(cc*v+dd)+e))); };
+  return c.map(v => Math.pow(aces(v), 1/2.2));
+}
+function updateChem(){
+  const d = sampleDef();
+  if(!d || !S.rig){ el.chem.style.display = 'none'; return; }
+  el.chem.style.display = '';
+  el.chemName.textContent = d.n;
+  el.chemF.textContent = d.f;
+  el.chemT.textContent = Math.round(S.sampleTemp) + ' °C';
+  const sv = sampleVisual();
+  el.chemSwatch.style.color = (S.rig===3 && S.sampleTemp > 520)
+    ? rgbCSS(planckRGB(S.sampleTemp+273))
+    : rgbCSS(S.rig===1 ? (d.col||[0.7,0.7,0.7]) : sv.col);
+
+  /* thermal-colour and enthalpy rows */
+  if(S.rig === 3){
+    el.glowRow.style.display = '';
+    el.chemGlow.textContent = glowName(S.sampleTemp);
+    el.chemGlow.style.color = S.sampleTemp > 520 ? rgbCSS(planckRGB(S.sampleTemp+273)) : '';
+  } else el.glowRow.style.display = 'none';
+
+  if(S.rig === 4){
+    el.concRow.style.display = '';
+    const parts = [];
+    if(S.remain > 0.004) parts.push(Math.round(S.remain*100) + '% water left');
+    if(S.conc >= 0.999 && S.remain > 0.004) parts.push('saturated');
+    else if(S.remain > 0.004) parts.push(Math.round(S.conc*100) + '% to saturation');
+    if(S.cryst > 0.02) parts.push(Math.round(S.cryst*100) + '% crystallised');
+    if(S.dehyd > 0.02) parts.push(Math.round(S.dehyd*100) + '% dehydrated');
+    el.chemConc.textContent = parts.join(' · ') || 'cold solution';
+    el.chemConc.style.color = S.dehyd > 0.02 ? '#ffb188' : (S.cryst > 0.02 ? '#a8dcff' : '');
+  } else el.concRow.style.display = 'none';
+
+  /* phase and the transition temperature that governs it */
+  const hasPhase = d.mp !== undefined || d.bp !== undefined;
+  if(hasPhase){
+    el.phaseRow.style.display = ''; el.mpRow.style.display = '';
+    let ph, cl = '';
+    if(d.bp !== undefined && S.remain <= 0.002) { ph = 'boiled away'; }
+    else if(S.boil > 0.05){ ph = 'BOILING — plateau'; cl = '#9ecbff'; }
+    else if(S.melt >= 0.999){ ph = 'fully molten'; cl = '#ffb188'; }
+    else if(S.melt > 0.02){ ph = 'melting · ' + Math.round(S.melt*100) + '% liquid'; cl = '#ffb188'; }
+    else if(S.sag > 0.25){ ph = 'softening (creep)'; cl = '#ffd97a'; }
+    else if(d.liquid) ph = 'liquid';
+    else ph = 'solid';
+    el.chemPhase.textContent = ph;
+    el.chemPhase.style.color = cl;
+    if(d.bp !== undefined){
+      el.mpLbl.textContent = 'Boiling point';
+      el.chemMP.textContent = d.bp + ' °C';
+    } else {
+      el.mpLbl.textContent = 'Melting point';
+      el.chemMP.innerHTML = d.mp + ' °C' + (d.mp > 1560
+        ? '<span class="badge endo">OUT OF REACH</span>' : '');
+    }
+  } else { el.phaseRow.style.display = 'none'; el.mpRow.style.display = 'none'; }
+
+  if(d.dH !== undefined && d.dH !== 0){
+    el.dhRow.style.display = '';
+    const exo = d.dH < 0;
+    el.chemDH.innerHTML = (d.dH>0?'+':'') + d.dH + ' kJ/mol' +
+      '<span class="badge ' + (exo?'exo':'endo') + '">' + (exo?'EXOTHERMIC':'ENDOTHERMIC') + '</span>';
+  } else el.dhRow.style.display = 'none';
+
+  /* temperature trace */
+  const h = S.tempHist;
+  if(h.length > 1){
+    el.tgraph.style.display = '';
+    let mx = 400;
+    for(const v of h) if(v > mx) mx = v;
+    mx = Math.ceil(mx/200)*200;
+    const step = 240/149;
+    const pts = h.map((v,i)=>{
+      const x = 240 - (h.length-1-i)*step;
+      const y = 44 - (v/mx)*42;
+      return x.toFixed(1)+','+y.toFixed(1);
+    }).join(' ');
+    el.tline.setAttribute('points', pts);
+    const onsetY = 44 - (Math.min(d.onset||0, mx)/mx)*42;
+    if(d.onset && d.onset < mx){
+      el.tonsetL.style.display = '';
+      el.tonsetL.setAttribute('y1', onsetY); el.tonsetL.setAttribute('y2', onsetY);
+    } else el.tonsetL.style.display = 'none';
+    el.tglab.textContent = 'max ' + mx + ' °C · 18 s';
+  } else el.tgraph.style.display = 'none';
+  el.chemObs.textContent = observation() || '';
+  el.chemEq.textContent = d.eq || '';
+  if(S.rig===1 && d.lines){
+    el.specWrap.style.display = '';
+    if(el.spec.dataset.k !== d.k){
+      el.spec.dataset.k = d.k;
+      el.spec.innerHTML = d.lines.map(w=>{
+        const x = clamp01((w-380)/380)*100;
+        return `<i style="left:${x.toFixed(1)}%"></i>`;
+      }).join('');
+    }
+  } else {
+    el.specWrap.style.display = 'none';
+    el.spec.dataset.k = '';
+  }
+  el.btnIn.textContent = S.inFlame ? 'Remove from flame' : 'Hold in flame';
+  el.btnIn.classList.toggle('on', S.inFlame);
+}
+$('rig0').addEventListener('click', ()=>setRig(0));
+$('rig1').addEventListener('click', ()=>setRig(1));
+$('rig2').addEventListener('click', ()=>setRig(2));
+$('rig3').addEventListener('click', ()=>setRig(3));
+$('rig4').addEventListener('click', ()=>setRig(4));
+el.btnIn.addEventListener('click', ()=>{ S.inFlame = !S.inFlame; });
+el.btnClean.addEventListener('click', ()=>{
+  S.sample = null; S.contam = 0; S.inFlame = false;
+  S.progress = 0; S.burn = 0; S.burning = false; S.burnt = false; S.sampleTemp = 20; S.tempHist = []; resetPhase();
+  buildSamples();
+});
+
+function setAir(v, fromUI){
+  S.air = clamp01(v);
+  if(!fromUI) el.air.value = Math.round(S.air*100);
+  el.airTxt.textContent = Math.round(S.air*100)+' %';
+  document.querySelectorAll('.preset').forEach(b=>{
+    b.classList.toggle('on', Math.abs(parseFloat(b.dataset.air)/100 - S.air) < 0.02);
+  });
+}
+function setGas(v, fromUI){
+  S.gas = clamp01(v);
+  if(!fromUI) el.gas.value = Math.round(S.gas*100);
+  el.gasTxt.textContent = Math.round(S.gas*100)+' %';
+  if(S.gas < 0.005 && S.lit) extinguish();
+}
+function ignite(){
+  Audio_.init(); Audio_.resume();
+  if(S.gas < 0.02){
+    flashAlert('warn', 'No gas at the jet — open the needle valve first.');
+    return;
+  }
+  S.lit = true; Audio_.pop();
+}
+function extinguish(){ S.lit = false; S.flashback = false; }
+
+let alertTimer = 0;
+function flashAlert(kind, msg, sticky){
+  el.alert.className = 'on ' + kind;
+  el.alert.textContent = msg;
+  alertTimer = sticky ? 1e9 : 3.2;
+}
+function clearAlert(){ el.alert.className=''; alertTimer = 0; }
+
+el.air.addEventListener('input', e => setAir(e.target.value/100, true));
+el.gas.addEventListener('input', e => setGas(e.target.value/100, true));
+document.querySelectorAll('.preset').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    setAir(parseFloat(b.dataset.air)/100);
+    if(!S.lit && S.gas>0.02) ignite();
+  });
+});
+$('btnIgnite').addEventListener('click', ignite);
+$('btnOut').addEventListener('click', extinguish);
+$('btnReset').addEventListener('click', ()=>{ CAM.az=DEF_CAM.az; CAM.el=DEF_CAM.el; CAM.zoom=1.0; });
+$('btnSave').addEventListener('click', saveSettings);
+$('btnLoad').addEventListener('click', ()=> el.fileIn.click());
+el.fileIn.addEventListener('change', e=>{ loadSettingsFile(e.target.files[0]); e.target.value=''; });
+$('btnCopy').addEventListener('click', async ()=>{
+  const txt = settingsJSON();
+  try {
+    await navigator.clipboard.writeText(txt);
+    flashAlert('ok','Setup JSON copied to the clipboard.');
+  } catch(err){
+    const ta = document.createElement('textarea');
+    ta.value = txt; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    let ok=false; try { ok = document.execCommand('copy'); } catch(e2){}
+    ta.remove();
+    flashAlert(ok?'ok':'bad', ok ? 'Setup JSON copied to the clipboard.'
+      : 'The browser blocked clipboard access — use Save .json instead.');
+  }
+});
+$('btnDefaults').addEventListener('click', ()=>{
+  applySettings({format:SETTINGS_FORMAT, version:SETTINGS_VERSION,
+    burner:{fuel:'methane', airCollar:0, gasValve:0.55, lit:true},
+    apparatus:{rig:'none', sample:null, inFlame:false},
+    view:{labels:false, autoOrbit:false, lightsOut:false, exposure:1.15, quality:2, autoFrame:true,
+          camera:{azimuth:DEF_CAM.az, elevation:DEF_CAM.el, zoom:1.0, focalLength:DEF_CAM.focal}}});
+  flashAlert('ok','Reset to the default setup.');
+});
+
+/* drag a .json onto the view to load it */
+['dragenter','dragover'].forEach(ev => window.addEventListener(ev, e=>{
+  if(e.dataTransfer && Array.from(e.dataTransfer.types||[]).includes('Files')){
+    e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+    document.body.classList.add('dropping');
+  }
+}));
+['dragleave','dragend'].forEach(ev => window.addEventListener(ev, e=>{
+  if(e.relatedTarget === null) document.body.classList.remove('dropping');
+}));
+window.addEventListener('drop', e=>{
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  document.body.classList.remove('dropping');
+  if(!f) return;
+  e.preventDefault();
+  if(!/\.json$/i.test(f.name) && f.type !== 'application/json'){
+    flashAlert('bad','Only .json setup files can be dropped here.'); return;
+  }
+  loadSettingsFile(f);
+});
+$('tLabels').addEventListener('click', e=>{ S.labels=!S.labels; e.currentTarget.classList.toggle('on',S.labels); el.labels.classList.toggle('on',S.labels); });
+$('tSound').addEventListener('click', e=>{ S.sound=!S.sound; e.currentTarget.classList.toggle('on',S.sound); if(S.sound){Audio_.init();Audio_.resume();} });
+$('tSpin').addEventListener('click',  e=>{ S.spin=!S.spin;  e.currentTarget.classList.toggle('on',S.spin); });
+$('tDark').addEventListener('click',  e=>{ S.darkroom=!S.darkroom; e.currentTarget.classList.toggle('on',S.darkroom); });
+el.exposure.addEventListener('input', e=>{ S.exposure = e.target.value/100; el.expTxt.textContent = S.exposure.toFixed(2); });
+const QNAMES = ['Low','Medium','High','Ultra'];
+el.quality.addEventListener('input', e=>{ S.quality = parseInt(e.target.value); el.qTxt.textContent = QNAMES[S.quality]; resize(true); });
+el.panelTab.addEventListener('click', ()=> el.panel.classList.toggle('hidden'));
+
+document.addEventListener('keydown', e=>{
+  if((e.metaKey || e.ctrlKey) && !e.altKey){
+    const kk = e.key.toLowerCase();
+    if(kk === 's'){ e.preventDefault(); saveSettings(); return; }
+    if(kk === 'o'){ e.preventDefault(); el.fileIn.click(); return; }
+  }
+  if(e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if(k>='1'&&k<='4'){ setAir([0,0.32,0.64,1.0][parseInt(k)-1]); if(!S.lit&&S.gas>0.02) ignite(); }
+  else if(k===' '){ e.preventDefault(); S.lit ? extinguish() : ignite(); }
+  else if(k==='l'){ $('tLabels').click(); }
+  else if(k==='s'){ $('tSound').click(); }
+  else if(k==='h'){ el.panel.classList.toggle('hidden'); }
+  else if(k==='r'){ $('btnReset').click(); }
+});
+
+/* ---------------- pointer interaction ---------------- */
+let drag = null, lastPtr = null;
+const KNOB_POS = [3.52, 3.28, 0.0];
+
+function pickPart(px,py){
+  const ray = rayFromPixel(px,py);
+  const tKnob = hitSphere(ray, KNOB_POS, 0.62);
+  const tCollar = hitCylinder(ray, 1.02, 1.95, 4.62);
+  if(tKnob > 0 && (tCollar < 0 || tKnob < tCollar)) return 'gas';
+  if(tCollar > 0) return 'air';
+  return null;
+}
+canvas.addEventListener('pointerdown', e=>{
+  canvas.setPointerCapture(e.pointerId);
+  const part = pickPart(e.clientX, e.clientY);
+  drag = {mode: part || 'orbit', x:e.clientX, y:e.clientY, air0:S.air, gas0:S.gas};
+  canvas.classList.add('dragging');
+  if(el.hint) el.hint.style.opacity = '0';
+  Audio_.resume();
+});
+canvas.addEventListener('pointermove', e=>{
+  if(!drag){
+    const part = pickPart(e.clientX, e.clientY);
+    canvas.classList.toggle('hoverPart', !!part);
+    return;
+  }
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if(drag.mode === 'orbit'){
+    CAM.az -= dx*0.0062;
+    CAM.el = Math.max(-0.32, Math.min(1.15, CAM.el + dy*0.0048));
+    drag.x = e.clientX; drag.y = e.clientY;
+  } else if(drag.mode === 'air'){
+    setAir(drag.air0 + dx*0.0055);
+  } else if(drag.mode === 'gas'){
+    setGas(drag.gas0 - dy*0.0055);
+  }
+});
+function endDrag(e){ if(drag){ drag=null; canvas.classList.remove('dragging'); } }
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  CAM.zoom = Math.max(0.35, Math.min(2.6, CAM.zoom * Math.exp(e.deltaY*0.0011)));
+}, {passive:false});
+canvas.addEventListener('dblclick', ()=>{ S.lit ? extinguish() : ignite(); });
+
+/* ---------------- labels ---------------- */
+const LABELS = [
+  {p:[0,0,0],   dyn:'coneTip', t:'hottest point — inner-cone tip', side:'l'},
+  {p:[0,0,0],   dyn:'cone',    t:'inner cone (premixed, coolest)', side:'r'},
+  {p:[0,0,0],   dyn:'mantle',  t:'outer mantle', side:'l'},
+  {p:[0.0,12.95,0.62], t:'barrel', side:'r'},
+  {p:[0.72,4.40,0.0],  t:'knurled air collar', side:'r'},
+  {p:[0.62,3.05,0.35], t:'throat slot — Venturi air intake', side:'l'},
+  {p:[3.6,1.72,0.0],   t:'hose barb', side:'r'},
+  {p:[3.52,3.28,0.0],  t:'needle valve (gas rate)', side:'r'},
+  {p:[2.6,0.55,0.0],   t:'base', side:'r'}
+];
+let labelNodes = [];
+function buildLabels(){
+  el.labels.querySelectorAll('.lbl').forEach(n=>n.remove());
+  el.lsvg.innerHTML = '';
+  labelNodes = LABELS.map(L=>{
+    const d = document.createElement('div');
+    d.className = 'lbl';
+    d.textContent = L.t;
+    el.labels.appendChild(d);
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    const dot  = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    dot.setAttribute('r','2');
+    el.lsvg.appendChild(line); el.lsvg.appendChild(dot);
+    return {L, d, line, dot};
+  });
+}
+function updateLabels(){
+  if(!S.labels) return;
+  const H = flameHeight(), y0 = flameBaseY(), a = aeration();
+  const coneH = H*(0.055+0.30*a)*(0.55+0.45*S.gas);
+  for(const n of labelNodes){
+    let p = n.L.p;
+    if(n.L.dyn === 'coneTip') p = [0, y0+coneH, 0];
+    else if(n.L.dyn === 'cone') p = [0, y0+coneH*0.45, 0];
+    else if(n.L.dyn === 'mantle') p = [0, y0+H*0.62, 0];
+    const hideFlame = !!n.L.dyn && S.litE < 0.15;
+    const sp = project(p);
+    if(!sp || hideFlame){ n.d.style.display='none'; n.line.style.display='none'; n.dot.style.display='none'; continue; }
+    n.d.style.display=''; n.line.style.display=''; n.dot.style.display='';
+    const panelOpen = !el.panel.classList.contains('hidden');
+    const rightEdge = canvas.clientWidth - (panelOpen ? el.panel.getBoundingClientRect().width : 0) - 10;
+    const w = n.d.offsetWidth || 130;
+    const LEAD = 62;
+    let left = n.L.side==='l' ? sp[0]-LEAD-w : sp[0]+LEAD;
+    if(left + w > rightEdge) left = sp[0]-LEAD-w;      // flip in
+    if(left < 10)            left = Math.min(sp[0]+LEAD, rightEdge-w);
+    left = Math.max(10, Math.min(left, rightEdge-w));
+    const anchorX = (left + w/2 < sp[0]) ? left + w : left;
+    n.d.style.left = left + 'px';
+    n.d.style.top  = sp[1] + 'px';
+    n.line.setAttribute('x1', sp[0]); n.line.setAttribute('y1', sp[1]);
+    n.line.setAttribute('x2', anchorX); n.line.setAttribute('y2', sp[1]);
+    n.dot.setAttribute('cx', sp[0]); n.dot.setAttribute('cy', sp[1]);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings files — a small, readable, versioned JSON document          */
+/* ------------------------------------------------------------------ */
+const SETTINGS_FORMAT  = 'bunsen-burner-simulator/settings';
+const SETTINGS_VERSION = 1;
+
+function exportSettings(){
+  return {
+    format: SETTINGS_FORMAT,
+    version: SETTINGS_VERSION,
+    savedAt: new Date().toISOString(),
+    burner: {
+      fuel: S.fuel,                       // methane · propane · butane · lpg
+      airCollar: round3(S.air),           // 0..1, throat-slot opening
+      gasValve:  round3(S.gas),           // 0..1, needle valve
+      lit: !!S.lit
+    },
+    apparatus: {
+      rig: ['none','flameTest','testTube','metal','basin'][S.rig] || 'none',
+      sample: S.sample || null,           // key, e.g. "na", "cuso4", "au"
+      inFlame: !!S.inFlame
+    },
+    view: {
+      labels: !!S.labels,
+      sound: !!S.sound,
+      autoOrbit: !!S.spin,
+      lightsOut: !!S.darkroom,
+      exposure: round3(S.exposure),
+      quality: S.quality,                 // 0 low … 3 ultra
+      autoFrame: !CAM.noAuto,
+      camera: {
+        azimuth: round3(CAM.az),
+        elevation: round3(CAM.el),
+        zoom: round3(CAM.zoom),
+        distance: round3(CAM.dist),
+        targetY: round3(CAM.target[1]),
+        focalLength: round3(CAM.focal)
+      }
+    }
+  };
+}
+function round3(v){ return Math.round(v*1000)/1000; }
+
+const RIG_KEYS = {none:0, flametest:1, flame_test:1, testtube:2, test_tube:2, metal:3,
+                  basin:4, evaporatingbasin:4, evaporating_basin:4, dish:4};
+
+/* Tolerant loader: unknown or missing fields are skipped, values are clamped,
+   and everything it could not use comes back as a warning. */
+function applySettings(obj){
+  const warn = [];
+  if(!obj || typeof obj !== 'object') return {ok:false, error:'That file does not contain a JSON object.'};
+  if(obj.format && obj.format !== SETTINGS_FORMAT)
+    return {ok:false, error:'Not a burner setup file (format was "'+String(obj.format).slice(0,60)+'").'};
+  if(!obj.format && !obj.burner && !obj.view)
+    return {ok:false, error:'Not a burner setup file — no "burner" or "view" section.'};
+  if(obj.version > SETTINGS_VERSION) warn.push('file is version '+obj.version+', this build reads version '+SETTINGS_VERSION);
+
+  const num = (v, lo, hi, label) => {
+    if(v === undefined || v === null) return null;
+    const n = Number(v);
+    if(!isFinite(n)){ warn.push(label+' was not a number'); return null; }
+    if(n < lo || n > hi) warn.push(label+' clamped to '+lo+'…'+hi);
+    return Math.min(hi, Math.max(lo, n));
+  };
+  const bool = (v) => (v === undefined || v === null) ? null : !!v;
+
+  const b = obj.burner || {};
+  if(b.fuel !== undefined){
+    if(FUELS[b.fuel]){ S.fuel = b.fuel; buildFuels(); }
+    else warn.push('unknown fuel "'+String(b.fuel).slice(0,24)+'"');
+  }
+  let v = num(b.airCollar, 0, 1, 'airCollar'); if(v !== null) setAir(v);
+  v = num(b.gasValve, 0, 1, 'gasValve');       if(v !== null) setGas(v);
+
+  const ap = obj.apparatus || {};
+  if(ap.rig !== undefined){
+    const key = String(ap.rig).toLowerCase().replace(/[^a-z_]/g,'');
+    const r = RIG_KEYS[key];
+    if(r === undefined) warn.push('unknown apparatus "'+String(ap.rig).slice(0,24)+'"');
+    else setRig(r);
+  }
+  if(ap.sample !== undefined && ap.sample !== null){
+    if(!S.rig) warn.push('sample "'+ap.sample+'" ignored — no apparatus selected');
+    else {
+      const list = S.rig === 1 ? SALTS : S.rig === 3 ? METALS : S.rig === 4 ? SOLUTIONS : TUBES;
+      if(list.some(x => x.k === ap.sample)) selectSample(ap.sample);
+      else warn.push('no sample "'+String(ap.sample).slice(0,24)+'" on this apparatus');
+    }
+  }
+  const inF = bool(ap.inFlame); if(inF !== null) S.inFlame = inF && !!S.rig;
+
+  const w = obj.view || {};
+  const setToggle = (val, key, btnId) => {
+    const t = bool(val); if(t === null) return;
+    if(S[key] !== t) $(btnId).click();
+  };
+  setToggle(w.labels,    'labels',   'tLabels');
+  setToggle(w.autoOrbit, 'spin',     'tSpin');
+  setToggle(w.lightsOut, 'darkroom', 'tDark');
+  if(bool(w.sound) === true && !S.sound) $('tSound').click();
+  else if(bool(w.sound) === false && S.sound) $('tSound').click();
+
+  v = num(w.exposure, 0.2, 2.6, 'exposure');
+  if(v !== null){ S.exposure = v; el.exposure.value = Math.round(v*100); el.expTxt.textContent = v.toFixed(2); }
+  v = num(w.quality, 0, 3, 'quality');
+  if(v !== null){ S.quality = Math.round(v); el.quality.value = S.quality; el.qTxt.textContent = QNAMES[S.quality]; resize(true); }
+
+  const af = bool(w.autoFrame); if(af !== null) CAM.noAuto = !af;
+  const c = w.camera || {};
+  v = num(c.azimuth, -100, 100, 'camera.azimuth');   if(v !== null) CAM.az = v;
+  v = num(c.elevation, -0.32, 1.15, 'camera.elevation'); if(v !== null) CAM.el = v;
+  v = num(c.zoom, 0.35, 2.6, 'camera.zoom');         if(v !== null) CAM.zoom = v;
+  v = num(c.focalLength, 1.2, 8, 'camera.focalLength'); if(v !== null) CAM.focal = v;
+  if(CAM.noAuto){
+    v = num(c.distance, 8, 160, 'camera.distance');  if(v !== null) CAM.dist = v;
+    v = num(c.targetY, -5, 60, 'camera.targetY');    if(v !== null) CAM.target[1] = v;
+  }
+
+  /* ignition last, so the flame lights into the geometry the file asked for */
+  const litWant = bool(b.lit);
+  if(litWant === true){ if(S.gas < 0.02) warn.push('cannot light: gasValve is 0'); else S.lit = true; }
+  else if(litWant === false) extinguish();
+
+  return {ok:true, warnings:warn};
+}
+
+function settingsJSON(){ return JSON.stringify(exportSettings(), null, 2); }
+
+function saveSettings(){
+  const name = 'bunsen-' + (S.sample || (S.rig ? 'rig' : 'flame')) + '-' +
+               new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.json';
+  const blob = new Blob([settingsJSON()], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  flashAlert('ok', 'Saved ' + name);
+}
+
+function loadSettingsText(text, label){
+  let obj;
+  try { obj = JSON.parse(text); }
+  catch(e){ flashAlert('bad', 'Could not read that file — it is not valid JSON. (' + e.message.slice(0,80) + ')'); return; }
+  const r = applySettings(obj);
+  if(!r.ok){ flashAlert('bad', r.error); return; }
+  flashAlert(r.warnings.length ? 'warn' : 'ok',
+    'Loaded ' + (label || 'setup') + (r.warnings.length ? ' — ' + r.warnings.length + ' item(s) adjusted: ' + r.warnings.join('; ') : '.'));
+}
+function loadSettingsFile(file){
+  if(!file) return;
+  const rd = new FileReader();
+  rd.onload = () => loadSettingsText(String(rd.result), file.name);
+  rd.onerror = () => flashAlert('bad', 'Could not read ' + file.name + '.');
+  rd.readAsText(file);
+}
+
+/* ---- built-in scenarios: the same document, inlined ---- */
+const SCENARIOS = [
+  {n:'Safety<br>flame', s:{burner:{fuel:'methane', airCollar:0, gasValve:0.55, lit:true},
+      apparatus:{rig:'none'}, view:{lightsOut:false}}},
+  {n:'Roaring<br>blue', s:{burner:{fuel:'methane', airCollar:1, gasValve:0.70, lit:true},
+      apparatus:{rig:'none'}, view:{lightsOut:false}}},
+  {n:'Sodium<br>test', s:{burner:{fuel:'methane', airCollar:1, gasValve:0.55, lit:true},
+      apparatus:{rig:'flameTest', sample:'na', inFlame:true}, view:{lightsOut:true, labels:false}}},
+  {n:'Melt<br>gold', s:{burner:{fuel:'propane', airCollar:1, gasValve:0.80, lit:true},
+      apparatus:{rig:'metal', sample:'au', inFlame:true}, view:{lightsOut:false}}},
+  {n:'Boil<br>mercury', s:{burner:{fuel:'methane', airCollar:0.75, gasValve:0.60, lit:true},
+      apparatus:{rig:'metal', sample:'hg', inFlame:true}, view:{lightsOut:false}}},
+  {n:'Boil<br>water', s:{burner:{fuel:'methane', airCollar:1, gasValve:0.70, lit:true},
+      apparatus:{rig:'testTube', sample:'water', inFlame:true}, view:{lightsOut:false}}},
+  {n:'Grow<br>crystals', s:{burner:{fuel:'methane', airCollar:0.85, gasValve:0.55, lit:true},
+      apparatus:{rig:'basin', sample:'cuso4aq', inFlame:true}, view:{lightsOut:false}}},
+  {n:'Cobalt<br>indicator', s:{burner:{fuel:'methane', airCollar:0.85, gasValve:0.60, lit:true},
+      apparatus:{rig:'basin', sample:'coso4aq', inFlame:true}, view:{lightsOut:false}}},
+  {n:'Dust<br>flash', s:{burner:{fuel:'methane', airCollar:1, gasValve:0.70, lit:true},
+      apparatus:{rig:'testTube', sample:'dust', inFlame:true}, view:{lightsOut:true}}},
+  {n:'Squeaky<br>pop', s:{burner:{fuel:'methane', airCollar:0.6, gasValve:0.55, lit:true},
+      apparatus:{rig:'testTube', sample:'h2', inFlame:true}, view:{lightsOut:true}}}
+];
+function buildScenarios(){
+  el.scenarios.innerHTML = '';
+  SCENARIOS.forEach(sc=>{
+    const b = document.createElement('button');
+    b.className = 'preset';
+    b.innerHTML = '<span class="t" style="font-size:9px;line-height:1.35">'+sc.n+'</span>';
+    b.onclick = ()=>{ applySettings(Object.assign({format:SETTINGS_FORMAT, version:SETTINGS_VERSION}, sc.s)); };
+    el.scenarios.appendChild(b);
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Resize                                                              */
+/* ------------------------------------------------------------------ */
+let W=1, H=1, scaleFactor=1;
+const QSCALE = [0.55, 0.75, 1.0, 1.0];
+const QSTEPS = [40, 56, 80, 132];
+function resize(force){
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const q = QSCALE[S.quality] * scaleFactor;
+  const w = Math.max(2, Math.round(canvas.clientWidth  * dpr * q));
+  const h = Math.max(2, Math.round(canvas.clientHeight * dpr * q));
+  if(!force && w===W && h===H) return;
+  W=w; H=h;
+  canvas.width = W; canvas.height = H;
+  resizeTargets(W,H);
+  el.lsvg.setAttribute('viewBox', `0 0 ${canvas.clientWidth} ${canvas.clientHeight}`);
+}
+window.addEventListener('resize', ()=>resize(false));
+
+/* ------------------------------------------------------------------ */
+/* Flame geometry helpers shared with the shader                       */
+/* ------------------------------------------------------------------ */
+const BARREL_TOP = 12.95;
+function flameBaseY(){
+  let y = BARREL_TOP - 0.15;
+  if(S.flashback) y = 2.35;                       // burning back at the jet
+  else y += liftAmount()*0.9;                      // lifted / blowing off
+  return y;
+}
+function liftAmount(){
+  const a = aeration();
+  const thr = clamp01(0.80 + (fuel().sL - 0.37)*1.3);
+  return clamp01((S.gas-thr)*6.0) * clamp01((a-0.80)*5.0);
+}
+
+/* ------------------------------------------------------------------ */
+/* Apparatus placement + thermochemistry                               */
+/* ------------------------------------------------------------------ */
+const RIG_OUT   = vnorm([0.80, 0.10, 0.56]);
+const TUBE_AXIS = vnorm([0.34, 0.925, 0.17]);
+function lerp3(a,b,t){ return [lerp(a[0],b[0],t), lerp(a[1],b[1],t), lerp(a[2],b[2],t)]; }
+function coneHeight(){
+  const a = aeration();
+  return flameHeight()*(0.055+0.30*a)*(0.55+0.45*S.gas);
+}
+function rigGeom(){
+  const y0 = flameBaseY(), ch = coneHeight();
+  if(S.rig === 4){
+    const act  = [0, y0 + Math.max(ch + 1.5, 2.2), 0];
+    const park = [act[0]+7.4, act[1]+2.0, act[2]+5.0];
+    return { pos: lerp3(park, act, S.rigT), axis: RIG_OUT };
+  }
+  if(S.rig === 1 || S.rig === 3){
+    const act  = [0, y0 + Math.max(ch + 0.9, 1.5), 0];
+    const park = [act[0]+6.4, act[1]+1.8, act[2]+4.3];
+    return { pos: lerp3(park, act, S.rigT), axis: RIG_OUT };
+  }
+  const act  = [0, y0 + Math.max(ch*0.7 + 0.9, 1.5), 0];
+  const park = [act[0]+6.8, act[1]+2.4, act[2]+4.6];
+  return { pos: lerp3(park, act, S.rigT), axis: TUBE_AXIS };
+}
+function normCol(c){
+  const m = Math.max(1e-4, c[0], c[1], c[2]);
+  return [c[0]/m, c[1]/m, c[2]/m];
+}
+function stepChem(dt){
+  const d = sampleDef();
+  const want = (S.inFlame && S.rig > 0 && d) ? 1 : 0;
+  S.rigT += (want - S.rigT) * Math.min(1, dt*2.4);
+
+  /* the glass of the tube picks up heat from the flame independently */
+  const glassTarget = (S.rig===2 && S.rigT > 0.5 && S.litE > 0.3 && !S.flashback)
+    ? 293 + (tempHot()+273-293)*0.56 : 293;
+  S.glassT += (glassTarget - S.glassT) * Math.min(1, dt/(S.rig===2 ? 4.0 : 2.0));
+
+  if(!d){
+    S.sampleTemp += (20 - S.sampleTemp) * Math.min(1, dt*0.5);
+    S.progress = 0; S.burn = 0; S.burning = false; S.burnt = false; S.rate = 0;
+    return;
+  }
+  const inHot  = S.rigT > 0.55 && S.litE > 0.3 && !S.flashback;
+  const tau    = (S.rig === 2) ? 5.2 : (S.rig === 4) ? 4.4 : (d.fill > 0.5 ? 0.9 : 1.6);
+  const target = inHot ? 20 + (tempHot()-20)*(S.rig === 2 ? 0.42 : S.rig === 4 ? 0.50 : 0.92) : 20;
+
+  /* ---- reaction extent ---- */
+  let rate = 0;                                   // d(progress)/dt
+  if(S.rig === 1){
+    if(inHot && S.contam > 0) S.contam = Math.max(0, S.contam - dt*0.055);
+  } else if(d.reversible){
+    const p2 = smoothstep(d.onset, d.onset+300, S.sampleTemp);
+    rate = (p2 - S.progress)/Math.max(dt, 1e-4);
+    S.progress = p2;
+  } else if(d.sublime){
+    rate = (S.sampleTemp > d.onset)
+      ? d.rate*(0.35 + (S.sampleTemp-d.onset)/220)
+      : -0.22;
+    if(S.progress >= 1 && rate > 0) rate = 0;
+    if(S.progress <= 0 && rate < 0) rate = 0;
+    S.progress = clamp01(S.progress + rate*dt);
+  } else if(S.sampleTemp > d.onset && S.progress < 1){
+    rate = Math.min(d.rate*(0.35 + (S.sampleTemp-d.onset)/260), d.rate*5.0);
+    S.progress = clamp01(S.progress + rate*dt);
+  }
+  S.rate = rate;
+
+  /* ---- energy balance: conduction from the flame + reaction enthalpy ---- */
+  const dTdt_flame = (target - S.sampleTemp)/tau;
+  const q = (d.selfHeat || 0) * Math.max(0, Math.abs(rate));
+  S.sampleTemp = Math.max(18, S.sampleTemp + (dTdt_flame + q)*dt);
+  if(d.tPeak) S.sampleTemp = Math.min(S.sampleTemp, d.tPeak);
+
+  /* ---- burning metals ---- */
+  if(d.burn){
+    if(!S.burnt && !S.burning && S.sampleTemp > d.onset && inHot) S.burning = true;
+    if(S.burning){
+      S.burn = Math.min(1, S.burn + dt*2.2);
+      if(S.progress >= 0.999){ S.burning = false; S.burnt = true; }
+    } else {
+      S.burn = Math.max(0, S.burn - dt*1.6);
+    }
+  }
+
+  /* ---- phase change: creep, melting, boiling, dripping ---- */
+  stepPhase(dt, d, inHot);
+
+  /* ---- temperature trace ---- */
+  S.histAcc = (S.histAcc||0) + dt;
+  if(S.histAcc > 0.12){
+    S.histAcc = 0;
+    S.tempHist.push(S.sampleTemp);
+    if(S.tempHist.length > 150) S.tempHist.shift();
+  }
+}
+function resetPhase(){
+  S.melt = 0; S.sag = 0; S.boil = 0; S.level = 1; S.remain = 1;
+  S.dripAcc = 0; S.drips = []; S.dripT = 293; S.popped = false; S.bumpAcc = 0;
+  S.conc = 0; S.cryst = 0; S.dehyd = 0;
+  S.pud = {pos:[0,0.99,0], r:0, T:293};
+}
+
+/* ------------------------------------------------------------------ */
+/* Phase change — the part you actually watch happen                   */
+/* ------------------------------------------------------------------ */
+function stepPhase(dt, d, inHot){
+  /* --- boiling: the temperature pins to the boiling point while latent
+         heat of vaporisation soaks up everything the flame delivers --- */
+  if(d.bp !== undefined && S.remain > 0.001){
+    /* dissolved solute elevates the boiling point as the liquor concentrates */
+    const bpNow = d.bp + (d.bpRise || 0) * S.conc;
+    if(S.sampleTemp >= bpNow - 1){
+      const excess = Math.max(0, S.sampleTemp - bpNow);
+      S.sampleTemp = bpNow + Math.min(excess*0.06, 3.0);
+      const vig = clamp01(0.25 + excess*0.10);
+      S.boil += (vig - S.boil) * Math.min(1, dt*3.0);
+      S.remain = Math.max(0, S.remain - dt*(d.rate||0.03)*(0.5 + 1.6*vig));
+      S.level = S.remain;
+      S.progress = 1 - S.remain;
+      /* bumping: a slug of superheated liquid flashing over all at once */
+      if(d.bump){
+        S.bumpAcc += dt*vig;
+        if(S.bumpAcc > 2.4 + Math.random()*3.0){
+          S.bumpAcc = 0;
+          S.boil = 1.4;
+          const rg = rigGeom();
+          detonate([rg.pos[0]+rg.axis[0]*7.9, rg.pos[1]+rg.axis[1]*7.9, rg.pos[2]+rg.axis[2]*7.9],
+                   0.16, [0.85,0.90,1.00], 0.55, 0.35);
+        }
+      }
+    } else {
+      S.boil += (0 - S.boil) * Math.min(1, dt*2.0);
+    }
+    if(S.remain <= 0.001) S.boil = 0;
+  }
+
+  /* --- the basin: concentrate, saturate, crystallise, then dehydrate --- */
+  if(S.rig === 4){
+    const sat = d.satAt !== undefined ? d.satAt : 0.44;
+    S.conc  = clamp01((1 - S.remain) / Math.max(1e-3, 1 - sat));
+    S.cryst = clamp01((sat - S.remain) / Math.max(1e-3, sat));
+    S.level = S.remain;
+    if(S.remain <= 0.004 && d.dehyd !== undefined && S.sampleTemp > d.dehyd){
+      S.dehyd = clamp01(S.dehyd + dt * (d.dehydRate || 0.08)
+                        * (0.4 + (S.sampleTemp - d.dehyd)/180));
+    }
+  }
+
+  /* --- melting: creep first, then a genuine latent-heat plateau --- */
+  if(d.mp !== undefined && !d.liquid){
+    const TK = S.sampleTemp + 273, mpK = d.mp + 273;
+    const creep = smoothstep(0.74*mpK, mpK, TK) * (d.sagMax !== undefined ? d.sagMax : 1.0);
+    const sagT = Math.min(1.25, creep + S.melt*0.75*(d.sagMax !== undefined ? d.sagMax : 1.0));
+    S.sag += (sagT - S.sag) * Math.min(1, dt*(sagT > S.sag ? 0.55 : 1.6));
+
+    const over = S.sampleTemp - d.mp;
+    if(over > 0 && S.melt < 1 && S.remain > 0.001){
+      S.melt = clamp01(S.melt + dt * over / (d.latent || 60));
+      S.sampleTemp = Math.min(S.sampleTemp, d.mp + 40*S.melt + 2);   // the plateau
+    } else if(over < -12){
+      S.melt = Math.max(0, S.melt - dt*0.7);
+    }
+
+    /* --- dripping --- */
+    if(S.melt > 0.55 && (d.dripRate||0) > 0 && S.remain > 0.001){
+      S.dripAcc += dt * d.dripRate * (S.melt-0.55)/0.45 * 1.6;
+      while(S.dripAcc > 1){
+        S.dripAcc -= 1;
+        spawnDrip(d);
+        S.remain = Math.max(0, S.remain - 0.075);
+      }
+    }
+  }
+
+  /* --- droplets in flight --- */
+  const G = 700;
+  for(let i=S.drips.length-1; i>=0; i--){
+    const dr = S.drips[i];
+    dr.v[1] -= G*dt;
+    dr.p[0] += dr.v[0]*dt; dr.p[1] += dr.v[1]*dt; dr.p[2] += dr.v[2]*dt;
+    dr.T -= dt*260;
+    const rad = Math.hypot(dr.p[0], dr.p[2]);
+    const landY = rad < 3.9 ? 1.00 : 0.06;
+    if(dr.p[1] <= landY){
+      const P = S.pud;
+      if(P.r < 0.02){ P.pos = [dr.p[0], landY, dr.p[2]]; }
+      P.r = Math.min(1.5, Math.sqrt(P.r*P.r + dr.r*dr.r*2.2));
+      P.T = Math.max(P.T, dr.T);
+      S.drips.splice(i,1);
+    } else if(dr.p[1] < -2){ S.drips.splice(i,1); }
+  }
+  S.dripT = S.drips.length ? S.drips.reduce((a,b)=>a+b.T,0)/S.drips.length : 293;
+  S.pud.T += (293 - S.pud.T) * Math.min(1, dt*0.10);
+
+  /* --- ignition demos --- */
+  if(d.pop && inHot && !S.popped && S.sampleTemp > d.onset){
+    S.popped = true; S.progress = 1;
+    const rg = rigGeom();
+    detonate([rg.pos[0]+rg.axis[0]*8.0, rg.pos[1]+rg.axis[1]*8.0, rg.pos[2]+rg.axis[2]*8.0],
+             0.62, [0.92,0.90,1.00], 0.62, 1.0);
+  }
+  if(d.dust && inHot && S.sampleTemp > d.onset && S.progress < 0.995){
+    S.bumpAcc += dt;
+    if(S.bumpAcc > 0.85){
+      S.bumpAcc = 0;
+      const rg = rigGeom();
+      detonate([rg.pos[0]+rg.axis[0]*8.4, rg.pos[1]+rg.axis[1]*8.4, rg.pos[2]+rg.axis[2]*8.4],
+               0.75, [1.00,0.56,0.16], 0.80, 0.8);
+    }
+  }
+
+  /* exothermic flare: how hard the reaction is driving its own temperature */
+  const q = (d.selfHeat||0) * Math.max(0, S.rate||0);
+  S.flare += (clamp01(q/450) - S.flare) * Math.min(1, dt*4.0);
+}
+
+function spawnDrip(d){
+  if(S.drips.length >= 6) return;
+  const rg = rigGeom(), L = 2.05;
+  const a = Math.random()*Math.PI*2;
+  S.drips.push({
+    p:[ rg.pos[0] + rg.axis[0]*0.50 - rg.axis[0]*L,
+        rg.pos[1] + rg.axis[1]*0.50 - rg.axis[1]*L - S.sag*1.35 - 0.1,
+        rg.pos[2] + rg.axis[2]*0.50 - rg.axis[2]*L ],
+    v:[ Math.cos(a)*22 + rg.axis[0]*-8, -6, Math.sin(a)*22 + rg.axis[2]*-8 ],
+    r: 0.11 + Math.random()*0.05,
+    T: S.sampleTemp + 273
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Detonations                                                         */
+/* ------------------------------------------------------------------ */
+function detonate(pos, power, col, dur, loud){
+  S.boom = {t:0, dur:dur||0.8, pos:pos.slice(), power, col:col||[1,0.72,0.35]};
+  Audio_.bang(power*(loud===undefined?1:loud));
+}
+function boomUniforms(){
+  const b = S.boom;
+  if(b.t >= b.dur) return null;
+  const e = clamp01(b.t/b.dur);
+  return {
+    pos: b.pos, col: b.col,
+    R: b.power*(0.30 + 8.0*Math.pow(e,0.55)),
+    W: b.power*(0.22 + 1.8*e) + 0.05,
+    I: b.power*10.0*Math.exp(-4.2*e)*(1-e),
+    flash: b.power*0.58*Math.exp(-7.5*e),
+    shockR: 0.05 + 1.15*e,
+    shock: b.power*0.85*(1-e)*Math.exp(-1.6*e)
+  };
+}
+
+/* smoke / fume plume: reaction fumes first, otherwise soot off a rich flame */
+function smokeState(){
+  const d = sampleDef();
+  if(d && S.rigT > 0.35){
+    const from = d.smokeFrom !== undefined ? d.smokeFrom : 0.02;
+    let amt = 0;
+    if(d.smokeAmt){
+      if(d.bp !== undefined) amt = d.smokeAmt * S.boil * (S.remain > 0.002 ? 1 : 0);
+      else if(d.burn) amt = d.smokeAmt * S.burn;
+      else amt = d.smokeAmt * clamp01((S.progress - from)/0.25) * (S.progress < 0.995 || d.reversible ? 1 : 0.35);
+    }
+    let sparks = (d.sparks||0) * (d.burn ? S.burn : clamp01((S.progress-from)/0.2)) * (S.progress<0.999?1:0);
+    if(amt > 0.004 || sparks > 0.004){
+      const rg = rigGeom();
+      const src = (S.rig === 2)
+        ? [rg.pos[0]+rg.axis[0]*7.7, rg.pos[1]+rg.axis[1]*7.7, rg.pos[2]+rg.axis[2]*7.7]
+        : S.rig === 4
+        ? [rg.pos[0], rg.pos[1]+0.85, rg.pos[2]]
+        : [rg.pos[0], rg.pos[1]+(d.liquid?0.5:0.4), rg.pos[2]];
+      return { col: d.smoke || [0.7,0.7,0.7], amt, src, sparks };
+    }
+  }
+  /* a rich, luminous flame smokes a little on its own */
+  const soot = sootFracJS();
+  if(S.litE > 0.3 && soot > 0.62 && S.gas > 0.35){
+    const amt = 0.30*(soot-0.62)/0.38*(0.3+0.7*S.gas);
+    return { col:[0.16,0.15,0.145], amt, src:[0, flameBaseY()+flameHeight()*0.95, 0], sparks:0 };
+  }
+  return { col:[0.6,0.6,0.6], amt:0, src:[0,0,0], sparks:0 };
+}
+function condenseAmt(){
+  const d = sampleDef();
+  if(S.rig !== 2 || !d || !d.condense) return 0;
+  return clamp01(d.condense * clamp01((S.progress-0.04)/0.25) * (1 - smoothstep(1.10, 1.35, S.glassT/700)));
+}
+function saltEmission(){
+  const d = sampleDef();
+  /* a copper specimen genuinely tints the flame green as CuO forms */
+  if(S.rig === 3 && d && d.k === 'cu' && S.rigT > 0.45)
+    return { col: normCol([0.30,1.00,0.42]),
+             amt: 0.34*clamp01(S.progress/0.35)*clamp01((S.rigT-0.45)/0.35)*S.litE };
+  if(S.rig !== 1 || !d || d.burnAt) {
+    if(S.contam > 0.02 && S.rig === 1 && S.rigT > 0.5)
+      return { col: normCol(S.contamCol), amt: 0.55*S.contam*clamp01((S.rigT-0.45)/0.4)*S.litE };
+    return { col:[1,1,1], amt:0 };
+  }
+  const heat = smoothstep(260, 700, S.sampleTemp);
+  const amt  = clamp01(heat * clamp01((S.rigT-0.42)/0.35) * S.litE);
+  let col = d.col;
+  if(S.contam > 0.02) col = [
+    lerp(col[0], S.contamCol[0], S.contam*0.72),
+    lerp(col[1], S.contamCol[1], S.contam*0.72),
+    lerp(col[2], S.contamCol[2], S.contam*0.72)];
+  return { col: normCol(col), amt: amt*0.97 };
+}
+function sampleVisual(){
+  const d = sampleDef();
+  const K = S.sampleTemp + 273;
+  if(!d) return { col:[0.6,0.6,0.6], fill:0, K:293, vap:[0.6,0.6,0.6], vapAmt:0 };
+  if(S.rig === 1){
+    return { col: d.col.map(c => 0.35 + 0.65*c), fill: 1.0, K,
+             vap:[0.6,0.6,0.6], vapAmt:0 };
+  }
+  if(S.rig === 4){
+    const deep = 0.45 + 0.55*(1 - 0.55*S.conc);
+    const sol  = [d.sol[0]*deep, d.sol[1]*deep, d.sol[2]*deep];
+    const cry  = [lerp(d.cry[0], d.dry[0], S.dehyd),
+                  lerp(d.cry[1], d.dry[1], S.dehyd),
+                  lerp(d.cry[2], d.dry[2], S.dehyd)];
+    return { col: sol, cry, fill: 0, K, vap:[0.6,0.6,0.6], vapAmt:0 };
+  }
+  const p = S.progress;
+  const col = [lerp(d.cold[0],d.hot[0],p), lerp(d.cold[1],d.hot[1],p), lerp(d.cold[2],d.hot[2],p)];
+  if(S.rig === 3){
+    let fill = d.fill || 0.15;
+    if(d.burn) fill *= (1 - 0.55*p);            /* the ribbon is consumed */
+    fill *= (0.22 + 0.78*S.remain);             /* and what melts, drips away */
+    const c2 = d.tint ? rampColor(d.tint, p) : col;
+    return { col:c2, fill, K, vap:[0.6,0.6,0.6], vapAmt:0 };
+  }
+  let fill = (d.fill||0.5);
+  if(d.bp !== undefined) fill *= S.remain;
+  if(d.sublime) fill *= (1 - 0.85*p);
+  if(d.k === 'sugar') fill *= (1 + 0.75*Math.sin(p*Math.PI));
+  const active = S.sampleTemp > d.onset - 10;
+  const bell = d.sublime ? p : clamp01(Math.pow(Math.sin(clamp01(p)*Math.PI), 0.55) + (d.linger||0)*smoothstep(0.12,0.55,p));
+  return { col, fill, K,
+           vap: d.vap||[0.6,0.6,0.6], vapAmt: (d.vapAmt||0) * (active?1:0) * bell };
+}
+function rampColor(stops, t){
+  t = clamp01(t);
+  for(let i=0;i<stops.length-1;i++){
+    if(t <= stops[i+1][0]){
+      const a = stops[i], b = stops[i+1];
+      const u = (t-a[0])/Math.max(1e-4, b[0]-a[0]);
+      return [lerp(a[1][0],b[1][0],u), lerp(a[1][1],b[1][1],u), lerp(a[1][2],b[1][2],u)];
+    }
+  }
+  return stops[stops.length-1][1];
+}
+/* what a metallurgist would call the colour right now */
+function glowName(T){
+  if(T < 500) return 'no visible glow';
+  if(T < 600) return 'faint dull red';
+  if(T < 700) return 'dark red';
+  if(T < 800) return 'blood red';
+  if(T < 900) return 'cherry red';
+  if(T < 1000) return 'bright cherry';
+  if(T < 1100) return 'orange';
+  if(T < 1250) return 'light orange';
+  if(T < 1400) return 'yellow';
+  return 'white hot';
+}
+function observation(){
+  const d = sampleDef();
+  if(!d) return null;
+  if(S.rig === 1){
+    if(S.rigT < 0.4) return 'Wire loop moistened and dipped in the salt. Swing it into the flame.';
+    if(S.sampleTemp < 300) return 'Warming up — the salt has not started to emit yet.';
+    if(S.contam > 0.3) return 'Contaminated wire: ' + d.obs + ' — but sodium carry-over is swamping it. Clean the wire in acid.';
+    return d.obs + '.';
+  }
+  if(S.rig === 4){
+    if(S.rigT < 0.4) return d.before;
+    if(S.dehyd > 0.35) return d.dryTxt;
+    if(S.remain <= 0.004) return d.after;
+    if(S.cryst > 0.05) return d.crystal;
+    if(S.boil > 0.05) return d.during;
+    return d.before;
+  }
+  if(S.rig === 3){
+    if(S.rigT < 0.4) return d.before;
+    const gl = ' Glowing ' + glowName(S.sampleTemp) + ' at ' + Math.round(S.sampleTemp) + ' °C.';
+    if(d.burn && S.burnt) return d.after;
+    if(d.burn && S.burning) return d.during;
+    if(d.bp !== undefined){
+      if(S.remain <= 0.002) return d.after;
+      if(S.boil > 0.05) return d.during;
+      return d.before;
+    }
+    if(d.mp !== undefined){
+      if(S.remain <= 0.002) return d.after;
+      if(S.melt > 0.02) return d.during + (S.melt < 0.999
+        ? ' The temperature has stalled at ' + d.mp + ' °C — latent heat of fusion is eating the energy.' : gl);
+      if(S.sag > 0.30) return 'Still solid but creeping: it has lost its stiffness and is drooping under its own weight.' + gl;
+      if(d.mp > 1560 && S.sampleTemp > 1200) return d.during + gl;
+    }
+    if(S.progress < 0.03) return d.before + (S.sampleTemp > 480 ? gl : '');
+    if(S.progress < 0.96) return d.during + gl;
+    return d.after;
+  }
+  if(S.progress < 0.02) return d.before + (S.sampleTemp < d.onset-5 ? ' Nothing yet — it needs about '+d.onset+' °C.' : '');
+  if(S.progress < 0.96){
+    let t = d.during;
+    if(S.glassT > 1020) t += ' The glass itself is glowing dull red — ease it out of the flame before it softens.';
+    return t;
+  }
+  return d.after;
+}
+
+/* ------------------------------------------------------------------ */
+/* Main loop                                                           */
+/* ------------------------------------------------------------------ */
+let last = performance.now(), fpsAcc = 0, fpsN = 0, fpsShown = 0, autoTimer = 0;
+
+function step(dt, edt){
+  S.time += dt;
+  edt = Math.min(0.6, edt === undefined ? dt : edt);
+
+  // eased flame presence
+  const target = S.lit ? 1 : 0;
+  S.litE += (target - S.litE) * Math.min(1, edt * (S.lit ? 7.0 : 5.0));
+  if(S.litE < 0.002) S.litE = 0;
+
+  // --- strike-back (light-back): rich air, starved gas -> flame retreats into the tube
+  const a = aeration();
+  const wantFlash = S.lit && S.air > 0.72 && S.gas < 0.115;
+  if(wantFlash && !S.flashback){ S.flashback = true; }
+  if(!wantFlash && S.flashback && (S.gas > 0.18 || S.air < 0.6)) S.flashback = false;
+  if(!S.lit) S.flashback = false;
+
+  const glowT = S.flashback ? 1 : 0;
+  S.glow += (glowT - S.glow) * Math.min(1, edt*(S.flashback?0.55:1.2));
+
+  // --- lift-off / blow-off
+  S.liftoff = liftAmount() > 0.35;
+  if(S.lit && S.gas > 0.985 && a > 0.95 && Math.random() < dt*0.25){
+    extinguish();
+    flashAlert('bad','Flame blew off the burner tube — the mixture velocity exceeded the flame speed. Reduce the gas and relight.');
+  }
+
+  // --- alerts
+  if(alertTimer > 0){ alertTimer -= dt; if(alertTimer <= 0) clearAlert(); }
+  if(S.flashback) flashAlert('bad','Strike-back: the mixture is burning at the jet inside the barrel. The tube is heating up — close the collar or increase the gas.', true);
+  else if(S.liftoff) flashAlert('warn','Flame lifting off the tube — too much gas for the air supply.', true);
+  else if(alertTimer > 1e8) clearAlert();
+
+  if(S.boom.t < S.boom.dur) S.boom.t += dt;
+
+  if(S.spin){ CAM.az += dt*0.16; }
+  stepChem(edt);
+  autoFrame(edt);
+
+  // keep the burner centred in the space left of the control panel
+  const panelOpen = !el.panel.classList.contains('hidden');
+  const cw = Math.max(1, canvas.clientWidth);
+  const pw = panelOpen ? el.panel.getBoundingClientRect().width : 0;
+  const desiredX = (cw - pw) * (pw > 0 ? 0.64 : 0.5);   // leave the left column for the readout
+  const targetShift = 1 - 2*desiredX/cw;
+  CAM.shift += (targetShift - CAM.shift) * Math.min(1, edt*7.0);
+
+  Audio_.update();
+}
+
+function updateHUD(){
+  const a = aeration();
+  el.flameName.textContent = flameName();
+  el.swatch.style.color = S.litE>0.05 ? keyColorCSS() : '#39404d';
+  el.aerBar.style.width = (a*100).toFixed(0)+'%';
+  el.aerVal.textContent = (a*100).toFixed(0)+' %';
+  if(S.litE > 0.05){
+    el.tHot.textContent  = Math.round(tempHot()/5)*5 + ' °C';
+    el.tCool.textContent = Math.round(tempCool()/5)*5 + ' °C';
+    const comp = 100*(1 - sootFracJS()*0.42);
+    el.comb.textContent  = comp.toFixed(0)+' % complete';
+    const s = sootFracJS();
+    el.soot.textContent  = s>0.6 ? 'heavy (dirty)' : s>0.25 ? 'moderate' : s>0.06 ? 'slight' : 'none (clean)';
+    el.fh.textContent    = S.flashback ? 'inside the tube' : flameHeight().toFixed(1)+' cm';
+  } else {
+    el.tHot.textContent = el.tCool.textContent = el.comb.textContent = el.soot.textContent = el.fh.textContent = '—';
+  }
+  updateChem();
+}
+
+function render(){
+  const c = camState();
+  const H_ = flameHeight();
+  const y0 = flameBaseY();
+  const a = aeration();
+  const steps = QSTEPS[S.quality];
+
+  /* ---- scene ---- */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, rt.hdr.fbo);
+  gl.viewport(0,0,W,H);
+  gl.useProgram(prog.scene.p);
+  const u = prog.scene.u;
+  gl.uniform2f(u.uRes, W, H);
+  gl.uniform1f(u.uTime, S.time);
+  gl.uniform3f(u.uCamPos, c.pos[0], c.pos[1], c.pos[2]);
+  gl.uniformMatrix3fv(u.uCamMat, false, c.mat);
+  gl.uniform1f(u.uFocal, CAM.focal);
+  gl.uniform1f(u.uShift, CAM.shift);
+  gl.uniform1f(u.uAir, aerationVisual());
+  gl.uniform1f(u.uCollar, (1.0 - S.air) * 1.30);
+  gl.uniform1f(u.uGas, S.gas);
+  gl.uniform1f(u.uLit, S.litE);
+  gl.uniform1f(u.uFH, S.flashback ? 1.5 : H_);
+  gl.uniform1f(u.uBaseY, y0);
+  gl.uniform1f(u.uGlow, S.glow);
+  gl.uniform1f(u.uLift, liftAmount());
+  gl.uniform1f(u.uRoom, S.darkroom ? 0.0 : 1.0);
+  gl.uniform1i(u.uSteps, steps);
+  gl.uniform1f(u.uEnc, ENC);
+
+  /* apparatus + chemistry */
+  const rg = rigGeom(), se = saltEmission(), sv = sampleVisual();
+  const showRig = (S.rig > 0 && sampleDef()) ? S.rig : 0;
+  gl.uniform1i(u.uRig, showRig);
+  gl.uniform3f(u.uRigPos,  rg.pos[0],  rg.pos[1],  rg.pos[2]);
+  gl.uniform3f(u.uRigAxis, rg.axis[0], rg.axis[1], rg.axis[2]);
+  gl.uniform3f(u.uSaltCol, se.col[0], se.col[1], se.col[2]);
+  gl.uniform1f(u.uSaltAmt, se.amt);
+  gl.uniform1f(u.uSaltY, rg.pos[1]);
+  /* anything held in the flame makes the gas stream go round it */
+  const obsR = S.rig===4 ? 1.50 : S.rig===2 ? 0.95 : S.rig===3 ? 0.60 : 0.40;
+  const obsY = S.rig===4 ? 0.62 : S.rig===2 ? 1.10 : 0.0;
+  gl.uniform3f(u.uObsPos, rg.pos[0] + (S.rig===2?rg.axis[0]*1.1:0),
+                          rg.pos[1] + (S.rig===2?rg.axis[1]*1.1:obsY),
+                          rg.pos[2] + (S.rig===2?rg.axis[2]*1.1:0));
+  gl.uniform1f(u.uObsR, obsR);
+  gl.uniform1f(u.uObsAmt, (S.rig && sampleDef()) ? S.rigT*0.95 : 0);
+  gl.uniform1f(u.uCryst, showRig===4 ? S.cryst : 0);
+  gl.uniform3f(u.uCrystCol, sv.cry?sv.cry[0]:1, sv.cry?sv.cry[1]:1, sv.cry?sv.cry[2]:1);
+  gl.uniform3f(u.uSolidCol, sv.col[0], sv.col[1], sv.col[2]);
+  gl.uniform1f(u.uSolidFill, showRig ? sv.fill : 0);
+  gl.uniform1f(u.uSolidT, showRig ? sv.K : 293);
+  gl.uniform3f(u.uVapCol, sv.vap[0], sv.vap[1], sv.vap[2]);
+  gl.uniform1f(u.uVapAmt, showRig===2 ? sv.vapAmt : 0);
+  gl.uniform1f(u.uBurn, S.burn);
+  gl.uniform1f(u.uGlassT, showRig===2 ? S.glassT : 293);
+  gl.uniform1f(u.uCondense, showRig===2 ? condenseAmt() : 0);
+  const sk = smokeState();
+  gl.uniform3f(u.uSmokeCol, sk.col[0], sk.col[1], sk.col[2]);
+  gl.uniform1f(u.uSmokeAmt, sk.amt);
+  gl.uniform3f(u.uSmokeSrc, sk.src[0], sk.src[1], sk.src[2]);
+  gl.uniform1f(u.uSparks, sk.sparks + S.flare*0.5);
+
+  /* phase change, dripping, detonation */
+  const dd = sampleDef();
+  gl.uniform1f(u.uMelt,  showRig===3 ? S.melt : 0);
+  gl.uniform1f(u.uSag,   showRig===3 ? S.sag  : 0);
+  gl.uniform1i(u.uLiquid, (showRig===3 && dd && dd.liquid) ? 1 : 0);
+  gl.uniform1f(u.uLevel, S.level);
+  gl.uniform1f(u.uBoil,  showRig ? S.boil : 0);
+  const dripBuf = new Float32Array(24);
+  for(let i=0;i<S.drips.length && i<6;i++){
+    const dr = S.drips[i];
+    dripBuf[i*4]=dr.p[0]; dripBuf[i*4+1]=dr.p[1]; dripBuf[i*4+2]=dr.p[2]; dripBuf[i*4+3]=dr.r;
+  }
+  gl.uniform4fv(u.uDrip, dripBuf);
+  gl.uniform1f(u.uDripT, S.dripT);
+  gl.uniform3f(u.uPudPos, S.pud.pos[0], S.pud.pos[1], S.pud.pos[2]);
+  gl.uniform1f(u.uPudR, S.pud.r);
+  gl.uniform1f(u.uPudT, S.pud.T);
+  const bm = boomUniforms();
+  gl.uniform3f(u.uBoomPos, bm?bm.pos[0]:0, bm?bm.pos[1]:0, bm?bm.pos[2]:0);
+  gl.uniform1f(u.uBoomR, bm?bm.R:0);
+  gl.uniform1f(u.uBoomW, bm?bm.W:1);
+  gl.uniform1f(u.uBoomI, bm?bm.I:0);
+  gl.uniform3f(u.uBoomCol, bm?bm.col[0]:1, bm?bm.col[1]:1, bm?bm.col[2]:1);
+  drawQuad();
+
+  /* ---- bloom ---- */
+  const m = rt.mips;
+  if(m.length){
+    gl.useProgram(prog.bright.p);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, m[0].fbo);
+    gl.viewport(0,0,m[0].w,m[0].h);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, rt.hdr.tex);
+    gl.uniform1i(prog.bright.u.uTex, 0);
+    gl.uniform2f(prog.bright.u.uTexel, 1/m[0].w, 1/m[0].h);
+    gl.uniform1f(prog.bright.u.uThresh, 0.62*ENC/ENC);
+    gl.uniform1f(prog.bright.u.uKnee, 0.42);
+    drawQuad();
+
+    gl.useProgram(prog.down.p);
+    for(let i=1;i<m.length;i++){
+      gl.bindFramebuffer(gl.FRAMEBUFFER, m[i].fbo);
+      gl.viewport(0,0,m[i].w,m[i].h);
+      gl.bindTexture(gl.TEXTURE_2D, m[i-1].tex);
+      gl.uniform1i(prog.down.u.uTex, 0);
+      gl.uniform2f(prog.down.u.uTexel, 1/m[i-1].w, 1/m[i-1].h);
+      drawQuad();
+    }
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(prog.up.p);
+    for(let i=m.length-1;i>0;i--){
+      gl.bindFramebuffer(gl.FRAMEBUFFER, m[i-1].fbo);
+      gl.viewport(0,0,m[i-1].w,m[i-1].h);
+      gl.bindTexture(gl.TEXTURE_2D, m[i].tex);
+      gl.uniform1i(prog.up.u.uTex, 0);
+      gl.uniform2f(prog.up.u.uTexel, 1/m[i].w, 1/m[i].h);
+      gl.uniform1f(prog.up.u.uRadius, 1.15);
+      drawQuad();
+    }
+    gl.disable(gl.BLEND);
+  }
+
+  /* ---- composite ---- */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0,0,W,H);
+  gl.useProgram(prog.final.p);
+  const f = prog.final.u;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, rt.hdr.tex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, m.length? m[0].tex : rt.hdr.tex);
+  gl.uniform1i(f.uBase, 0); gl.uniform1i(f.uBloom, 1);
+  gl.uniform2f(f.uRes, W, H);
+  gl.uniform1f(f.uTime, S.time);
+  gl.uniform1f(f.uExposure, S.exposure);
+  gl.uniform1f(f.uBloomAmt, m.length ? 0.52 : 0.0);
+  gl.uniform1f(f.uDec, DEC);
+  gl.uniform3f(f.uCamPos, c.pos[0], c.pos[1], c.pos[2]);
+  gl.uniformMatrix3fv(f.uCamMat, false, c.mat);
+  gl.uniform1f(f.uFocal, CAM.focal);
+  gl.uniform1f(f.uShift, CAM.shift);
+  gl.uniform1f(f.uShimmer, (S.litE * (0.35 + 0.9*a) * (0.4+0.8*S.gas) + (1-S.litE)*S.gas*0.5) * 0.85);
+  gl.uniform1f(f.uFlameTop, (S.litE > 0.05 && !S.flashback) ? y0 + H_*0.85 : BARREL_TOP + 0.5);
+  gl.uniform1f(f.uFlash, bm ? bm.flash : 0);
+  if(bm){
+    const sp = project(bm.pos);
+    gl.uniform2f(f.uShockPos, sp ? sp[0]/canvas.clientWidth : 0.5,
+                              sp ? 1 - sp[1]/canvas.clientHeight : 0.5);
+    gl.uniform1f(f.uShockR, bm.shockR);
+    gl.uniform1f(f.uShock,  sp ? bm.shock : 0);
+  } else {
+    gl.uniform1f(f.uShock, 0);
+  }
+  drawQuad();
+  gl.activeTexture(gl.TEXTURE0);
+}
+
+function frame(now){
+  const rawDt = (now-last)/1000;
+  const dt = Math.min(0.05, rawDt);
+  last = now;
+  resize(false);
+  step(dt, rawDt);
+  render();
+  updateHUD();
+  updateLabels();
+
+  fpsAcc += rawDt; fpsN++;
+  if(fpsAcc > 0.5){
+    fpsShown = fpsN/fpsAcc;
+    el.fps.textContent = fpsShown.toFixed(0) + ' fps · ' + W + '×' + H + (hdrOK?' · HDR16F':' · LDR');
+    // adaptive resolution
+    autoTimer += fpsAcc;
+    if(autoTimer > 2.0){
+      if(fpsShown < 26 && scaleFactor > 0.5){ scaleFactor = Math.max(0.5, scaleFactor-0.12); resize(true); }
+      else if(fpsShown > 58 && scaleFactor < 1.0){ scaleFactor = Math.min(1.0, scaleFactor+0.08); resize(true); }
+      autoTimer = 0;
+    }
+    fpsAcc = 0; fpsN = 0;
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ------------------------------------------------------------------ */
+/* Boot                                                                */
+/* ------------------------------------------------------------------ */
+if(gl){
+  try{
+    initGL();
+    buildLabels();
+    buildScenarios();
+    buildFuels();
+    setRig(0);
+    resize(true);
+    setAir(0.0); setGas(0.55);
+    el.expTxt.textContent = S.exposure.toFixed(2);
+    el.qTxt.textContent = QNAMES[S.quality];
+    // start lit on the safety flame, like a burner just struck
+    S.lit = true; S.litE = 1;
+    setTimeout(()=>{ if(el.hint) el.hint.style.opacity='0'; }, 9000);
+    requestAnimationFrame(frame);
+    window.__bunsen = {S, CAM, setAir, setGas, ignite, extinguish, __setRig:setRig, __pick:selectSample};
+    window.__settings = {exportSettings, applySettings, settingsJSON, saveSettings, loadSettingsText};
+    window.__dbg = {prog, gl, S, sampleVisual};
+  }catch(err){
+    console.error(err);
+  }
+}
+</script>
+</body>
+</html>
